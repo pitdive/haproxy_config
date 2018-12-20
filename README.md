@@ -21,6 +21,7 @@ Then, run the script in a directory of your choice (containing those 4 files).
 Example :
 
 **those lines can be ignored, this is only for the demonstration**
+
 [root@cloudianone CloudianPackages]# ls haproxy*
 haproxy_build_config.py  haproxy_template.cfg
 [root@cloudianone CloudianPackages]# ls survey.csv 
