@@ -48,6 +48,13 @@ Example :
 	Please copy the file haproxy.cfg on the haproxy server
 	Then reload the config + restart the haproxy service on the haproxy server
 
+**or with config files as parameters - remote workstation**
+
+	plong@snoopy:$ python haproxy_build_config.py survey.csv CloudianInstallConfiguration.txt 
+    	Done.
+    	HAProxy config file is : haproxy.cfg
+    	Please copy the file haproxy.cfg on the haproxy server
+    	Then reload the config + restart the haproxy service on the haproxy server
 
 **grab the haproxy.cfg file created and push it to the haproxy server**
 
