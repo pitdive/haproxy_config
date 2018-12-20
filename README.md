@@ -13,7 +13,7 @@ Download only the files :
   
 	haproxy_template.cfg
 
-You need to have also the files :
+You need to have also the files (from the Cloudian cluster / Puppet Master) :
 
 	CloudianPackages/survey.csv
   
@@ -22,10 +22,14 @@ You need to have also the files :
 
 Then, run the script in a directory of your choice (containing those 4 files).
 
+# Tested
+Tested on CentOS 7.4, HyperStore 7.0 and 7.1
+
 # Run
 Example :
 
 **those lines can be ignored, this is only for the demonstration**
+**I am using directly the CloudianPackages directory on the puppet master in this example**
 
 	root@cloudianone CloudianPackages# ls haproxy*
 	haproxy_build_config.py  haproxy_template.cfg
