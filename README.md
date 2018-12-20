@@ -48,8 +48,7 @@ Example :
 	Done.
 	HAProxy config file is : haproxy.cfg
 	Please copy the file haproxy.cfg on the haproxy server
-
-Then reload the config + restart the haproxy service on the haproxy server
+	Then reload the config + restart the haproxy service on the haproxy server
 
 
 **grab the haproxy.cfg file created and push it to the haproxy server**
