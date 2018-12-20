@@ -9,15 +9,15 @@ This is not a tool which could be used in a production environment as it is a be
 # Deployment
 Download only the files :
 
-  haproxy_build_config.py
+	haproxy_build_config.py
   
-  haproxy_template.cfg
+	haproxy_template.cfg
 
 You need to have also the files :
 
-  CloudianPackages/survey.csv
+	CloudianPackages/survey.csv
   
-  CloudianPackages/CloudianInstallConfiguration.txt
+	CloudianPackages/CloudianInstallConfiguration.txt
   
 
 Then, run the script in a directory of your choice (containing those 4 files).
@@ -27,36 +27,30 @@ Example :
 
 **those lines can be ignored, this is only for the demonstration**
 
-root@cloudianone CloudianPackages# ls haproxy*
+	root@cloudianone CloudianPackages# ls haproxy*
+	haproxy_build_config.py  haproxy_template.cfg
 
-haproxy_build_config.py  haproxy_template.cfg
+	root@cloudianone CloudianPackages# ls survey.csv 
+	survey.csv
 
-root@cloudianone CloudianPackages# ls survey.csv 
-
-survey.csv
-
-root@cloudianone CloudianPackages# ls CloudianInstallConfiguration.txt 
-
-CloudianInstallConfiguration.txt
+	root@cloudianone CloudianPackages# ls CloudianInstallConfiguration.txt 
+	CloudianInstallConfiguration.txt
 
 
 **this is the single line to run**
-root@cloudianone CloudianPackages# python haproxy_build_config.py 
 
-Done.
-
-HAProxy config file is : haproxy.cfg
-
-Please copy the file haproxy.cfg on the haproxy server
+	root@cloudianone CloudianPackages# python haproxy_build_config.py 
+	Done.
+	HAProxy config file is : haproxy.cfg
+	Please copy the file haproxy.cfg on the haproxy server
 
 Then reload the config + restart the haproxy service on the haproxy server
 
 
 **grab the haproxy.cfg file created and push it to the haproxy server**
 
-root@cloudianone CloudianPackages# ls haproxy.cfg 
-
-haproxy.cfg
+	root@cloudianone CloudianPackages# ls haproxy.cfg 
+	haproxy.cfg
 
 # Versioning
 0.1beta
