@@ -24,6 +24,7 @@ Then, run the script in a directory of your choice (containing those 4 files).
 
 # Tested
 Tested on CentOS 7.4, HyperStore 7.0 and 7.1
+small clusters : several nodes on 1 DC
 
 # Run
 Example :
