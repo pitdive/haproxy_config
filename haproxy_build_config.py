@@ -1,8 +1,12 @@
 #
 # haproxy_build_config python script
 # TO DO : add more verification tests like file exist ? etc... (no redundancy with DNS check)
+# work on parameters like : maxconn, nbproc, nbthread, cpu-map
+# work on parameter like : monitor fail & monitor-uri
+# work on parameter like : location affinity
 #
-# Peter Long / v=0.1b / Dec 2018
+# Peter Long / v=0.2b / Jan 2018
+# minor changes in the template : descriptions, maxconn in global section, maxconn=16384 in the default section, stats reorg.
 #
 
 from string import Template
