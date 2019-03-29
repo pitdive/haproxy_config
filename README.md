@@ -28,7 +28,7 @@ Then, run the script in a directory of your choice (containing those 4 files) or
 # Tested On
 Tested on CentOS 7.4, Python 2.7.x, HyperStore 7.0.x and 7.1.x
 
-Tested on HAProxy 1.5.x, 1.6.x and 1.8.x (last stable release)
+Tested on HAProxy 1.5.x, 1.6.x and 1.8.x
 
 Cloudian clusters : 3 and more nodes on 1 DC (PoC + clusters running in PROD) and 12 nodes on 2 DCs without any preferences and 6 nodes on 2 DCs with affinity for the first DC (clusters running in PROD).
 
