@@ -65,8 +65,8 @@ First, you should have the files mentioned above (or you can locate them) :
       -i INSTALL, --install INSTALL
                             indicate the installation file, default =
                             CloudianInstallConfiguration.txt
-      -b BACKUP, --backup BACKUP
-                            indicate the DC in backup/stand-by mode
+      -bs3 BACKUPS3, --backups3 BACKUP
+                            indicate the DC in backup/stand-by mode for s3 protocol (HTTP and HTTPS)
 
 **For only 1 DC, you can run a single line without any option (notice : I am using the stagging directory) :**
 
@@ -97,13 +97,13 @@ First, you should have the files mentioned above (or you can locate them) :
 In this case, you can run the command line like you would run it for 1 DC.
 All the nodes will be treated as others and the requests will be propagated to all nodes available no matter the location (aka DC).
 
-**For 2 DCs and affinity : choice to have one active and the second passive for s3 service, you must run the command line with the option "--backup".**
+**For 2 DCs and affinity : choice to have one active and the second passive for s3 service, you must run the command line with the option "--backups3".**
 
 In this example, we have 2 DataCenters : dc1 and dc2. 
 The dataCenter "dc1" is the active datacenter for the s3 requests and dc2 is only the passive dataCenter in case of a DC failure.
 Based on that choice, all s3 requests will be sent by HAProxy to only the "dc1" nodes in a nominal state else on the "dc2" nodes (in case of a failure of dc1).
 
-    plong@snoopy:~$ python haproxy_config.py -s survey.csv -i CloudianInstallConfiguration.txt -b dc2
+    plong@snoopy:~$ python haproxy_config.py -s survey.csv -i CloudianInstallConfiguration.txt -bs3 dc2
     Successful.
     HAProxy config file is : haproxy.cfg
     This configuration include the backup option for the DC : dc2
