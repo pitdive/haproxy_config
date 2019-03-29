@@ -40,7 +40,7 @@ Remote workstation : Should work on all OS which can support Python. Tested on D
 
 I am using directly the Stagging Directory : /root/CloudianPackages on the puppet master in this example just after an installation of HyperStore cluster.
 
-First, you should have the files mentioned above (or you can locate them) :
+First, you should have the files mentioned above in the Stagging Directory (or you can locate them) :
 
 	root@cloudianone CloudianPackages# ls haproxy*
 	haproxy_config.py  haproxy_template.cfg
@@ -54,7 +54,7 @@ First, you should have the files mentioned above (or you can locate them) :
 **if you want to have the command usage, just run the script with --help option**
 
     root@cloudianone CloudianPackages# python haproxy_config.py --help
-    usage: haproxy_config.py [-h] [-s SURVEY] [-i INSTALL] [-b BACKUP]
+    usage: haproxy_config.py [-h] [-s SURVEY] [-i INSTALL] [-bs3 BACKUP]
 
     parameters for the script
     
@@ -76,7 +76,7 @@ First, you should have the files mentioned above (or you can locate them) :
     Please copy the file haproxy.cfg on the haproxy server (into /etc/haproxy/)
     Then restart the haproxy service on the haproxy server via systemctl command
 
-**or use the options, from another directory :**
+**or use the options, from another directory (notice : I am NOT using the stagging directory) :**
 
     [root@cloudianone ~]# python haproxy_config.py -s /root/CloudianPackages/survey.csv -i /root/CloudianPackages/CloudianInstallConfiguration.txt 
     Successful.
@@ -84,7 +84,7 @@ First, you should have the files mentioned above (or you can locate them) :
     Please copy the file haproxy.cfg on the haproxy server (into /etc/haproxy/)
     Then restart the haproxy service on the haproxy server via systemctl command
 
-**or use a remote workstation where you put the files required :**
+**or use a remote workstation where you have uploaded the files required :**
 
     plong@snoopy:~$ python3.7 haproxy_config.py -s survey.csv -i CloudianInstallConfiguration.txt 
     Successful.
@@ -96,6 +96,12 @@ First, you should have the files mentioned above (or you can locate them) :
 
 In this case, you can run the command line like you would run it for 1 DC.
 All the nodes will be treated as others and the requests will be propagated to all nodes available no matter the location (aka DC).
+
+    root@cloudianone CloudianPackages# python haproxy_config.py 
+	Successful.
+    HAProxy config file is : haproxy.cfg
+    Please copy the file haproxy.cfg on the haproxy server (into /etc/haproxy/)
+    Then restart the haproxy service on the haproxy server via systemctl command
 
 **For 2 DCs and affinity : choice to have one active and the second passive for s3 service, you must run the command line with the option "--backups3".**
 
@@ -109,6 +115,11 @@ Based on that choice, all s3 requests will be sent by HAProxy to only the "dc1" 
     This configuration include the backup option for the DC : dc2
     Please copy the file haproxy.cfg on the haproxy server (into /etc/haproxy/)
     Then restart the haproxy service on the haproxy server via systemctl command
+
+This option is useful if the datacenter dc1 is the main datacenter where all the infrastructure is present.
+The datacenter dc2 has Cloudian ndoes with a limited infrastructure.
+You would like to limit the bandwidth usage between the datacenters.
+(avoid : sending a s3 request to dc2 although all your s3 clients are based on dc1 except if dc1 nodes are down)
 
 **In all cases, grab the haproxy.cfg file created in the local directory and send it to the haproxy server (aka the load-balancer host)**
 

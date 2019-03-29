@@ -3,7 +3,7 @@
 # TODO : more complex stuff like global affinities (2 config for 2 HAProxy, 2 DCs)
 #         work on parameters like : maxconn, nbproc, nbthread, cpu-map
 #         work on parameter like : monitor fail & monitor-uri
-#         work on alerting from HAProxy LB in case of "DOWN" server
+#         work on alerting from HAProxy LB in case of "DOWN" server (--> scheduled v0.5)
 #
 # Peter Long / v=0.4 / Mar 2019
 # minor changes in the template + renaming tool : backup option (affinity for s3 / stand-by DC)
@@ -49,13 +49,13 @@ def main():
     parser.add_argument('-i', '--install',
         help="indicate the installation file, default = CloudianInstallConfiguration.txt",
         default=install_config_file)
-    parser.add_argument('-b', '--backup',
-        help="indicate the DC in backup/stand-by mode, default=none", default=DEFAULT_BACKUP)
+    parser.add_argument('-bs3', '--backups3',
+        help="indicate the DC in backup/stand-by mode for s3, default=none", default=DEFAULT_BACKUP)
     args = parser.parse_args()
     survey_file = args.survey
     install_config_file = args.install
     # Define if we are using the "backup" parameter
-    if args.backup != DEFAULT_BACKUP:
+    if args.backups3 != DEFAULT_BACKUP:
         use_backup_option = True
 
     # Check if files exist
@@ -70,7 +70,7 @@ def main():
         line = filein.readline()
         while line != "":
             listing = line.split(",")
-            if listing[3] == args.backup:
+            if listing[3] == args.backups3:
                 backup_parameter = "backup"
                 dc_exist = True
             else:
@@ -81,8 +81,8 @@ def main():
             admin_https_list.append(HEADER + listing[1] + " " + listing[2] + ADMIN_HTTPS_PARAMETERS)
             line = filein.readline()
     if (not dc_exist) and use_backup_option:
-        print("Error, the expected DC : " + args.backup + " is not validated")
-        print("This DC name : " + args.backup + " is not in the survey file : " + survey_file)
+        print("Error, the expected DC : " + args.backups3 + " is not valid")
+        print("This DC name : " + args.backups3 + " is not in the survey file : " + survey_file)
         print("Check the DC name or the survey file and try again")
         exit(1)
 
@@ -116,7 +116,7 @@ def main():
 
     print("Successful.\nHAProxy config file is : " + haproxy_file)
     if use_backup_option:
-        print("This configuration include the backup option for the DC : " + args.backup)
+        print("This configuration include the backup option for the DC : " + args.backups3)
     print("Please copy the file " + haproxy_file + " on the haproxy server (into /etc/haproxy/)")
     print("Then restart the haproxy service on the haproxy server via systemctl command")
 
