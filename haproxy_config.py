@@ -3,12 +3,10 @@
 # TODO : more complex stuff like global affinities (2 config for 2 HAProxy, 2 DCs)
 #         work on parameters like : maxconn, nbproc, nbthread, cpu-map
 #         work on parameter like : monitor fail & monitor-uri
-#         work on alerting from HAProxy LB in case of "DOWN" server (--> scheduled v0.5)
+#         work on a wizard instead parameters in command line (needed ??)
 #
-# Peter Long / v=0.4 / Mar 2019
-# minor changes in the template + renaming tool : backup option (affinity for s3 / stand-by DC)
-#                                                 better parsing / check for input parameters
-#                                                 Add check if there is a wrong parameter or if DC doesn't exist
+# Peter Long / v=0.5 / Jun 2019
+# reflect changes included in HyperStore LB Guide v11 + email configuration & send email alerts for s3 HTTPS + ADMIN API
 
 from string import Template
 import argparse
@@ -23,7 +21,9 @@ def main():
     S3_HTTP_PARAMETERS = ":80 check inter 5s rise 1 fall 2"
     S3_HTTPS_PARAMETERS = ":443 check check-ssl verify none inter 5s rise 1 fall 2"
     ADMIN_HTTPS_PARAMETERS = ":19443 check check-ssl verify none inter 5s rise 1 fall 2"
+    # for options in the command line
     DEFAULT_BACKUP = "nobackupatall"
+    DEFAULT_MAILSERVER = "nomailserver"
 
     # VARIABLE
     survey_file = "survey.csv"
@@ -37,26 +37,44 @@ def main():
     s3_https_list = []
     admin_endpoint = ""
     admin_https_list = []
-    backup_parameter = ""
+    #    backup_parameter = ""
     use_backup_option = False
+    mailserver = []
+    mail_list = []
     dc_exist = False
 
     # Test arguments from command line
     # Define VARIABLE : install_config_file and survey_file in any case
     parser = argparse.ArgumentParser(description='parameters for the script')
     parser.add_argument('-s', '--survey', help="indicate the survey file, default = survey.csv",
-        default=survey_file)
+                        default=survey_file)
     parser.add_argument('-i', '--install',
-        help="indicate the installation file, default = CloudianInstallConfiguration.txt",
-        default=install_config_file)
+                        help="indicate the installation file, default = CloudianInstallConfiguration.txt",
+                        default=install_config_file)
     parser.add_argument('-bs3', '--backups3',
-        help="indicate the DC in backup/stand-by mode for s3, default=none", default=DEFAULT_BACKUP)
+                        help="indicate the DC in backup/stand-by mode for s3, default=none", default=DEFAULT_BACKUP)
+    parser.add_argument('-ms', '--mailserver', help="mail server name or @IP for alerts", default=DEFAULT_MAILSERVER)
+    parser.add_argument('-mf', '--mailfrom', help="indicate the sender, default = haproxy@localhost",
+                        default='haproxy@localhost')
+    parser.add_argument('-mt', '--mailto', help="indicate the recipient, default = root@localhost",
+                        default='root@localhost')
     args = parser.parse_args()
     survey_file = args.survey
     install_config_file = args.install
     # Define if we are using the "backup" parameter
     if args.backups3 != DEFAULT_BACKUP:
         use_backup_option = True
+
+    # Define if we are using the "mail" parameters and create the config
+    if args.mailserver != DEFAULT_MAILSERVER:
+        mailserver.append("mailers mailservers")
+        mailserver.append("    mailer smtp1 " + args.mailserver + ":25")
+        mail_list.append("    email-alert mailers mailservers")
+        mail_list.append("    email-alert from " + args.mailfrom)
+        mail_list.append("    email-alert to " + args.mailto)
+        mail_list.append("    email-alert level alert")
+    else:
+        mailserver.append("#no mail configuration")
 
     # Check if files exist
     if not ((os.path.isfile(survey_file)) and (os.path.isfile(install_config_file))):
@@ -97,16 +115,17 @@ def main():
             elif "cloudian_cmc_domain" in line:
                 cmc_endpoint = line.strip().split('=')[1]
 
-    # Create the HA proxy config file
-    # destination : file "haproxy.cfg" based on the template "haproxy_template.txt"
+        # Create the HA proxy config file
+        # destination : file "haproxy.cfg" based on the template "haproxy_template.txt"
     with open(template_file, "r") as filein:
         # Read template file
         src = Template(filein.read())
         # Concatenate infos
-        d = {'cmc_endpoint': cmc_endpoint, 's3_endpoint': s3_endpoint, 'admin_endpoint': admin_endpoint,
+        d = {'mailserver_line': '\n'.join(mailserver), 'cmc_endpoint': cmc_endpoint, 's3_endpoint': s3_endpoint,
+             'admin_endpoint': admin_endpoint,
              'cmc_https_list': '\n'.join(cmc_https_list),
              's3_http_list': '\n'.join(s3_http_list), 's3_https_list': '\n'.join(s3_https_list),
-             'admin_https_list': '\n'.join(admin_https_list)}
+             'admin_https_list': '\n'.join(admin_https_list), 'mail_list': '\n'.join(mail_list)}
         # Substitution in the template --> result
         result = src.substitute(d)
         # Write result into haproxy file
@@ -114,11 +133,12 @@ def main():
         fileout.write(result)
         fileout.close()
 
-    print("Successful.\nHAProxy config file is : " + haproxy_file)
+    print("Successful.\nHAProxy config file is : " + haproxy_file + " in the local/current directory")
     if use_backup_option:
         print("This configuration include the backup option for the DC : " + args.backups3)
     print("Please copy the file " + haproxy_file + " on the haproxy server (into /etc/haproxy/)")
     print("Then restart the haproxy service on the haproxy server via systemctl command")
+    print("example : systemctl restart haproxy")
 
 
 if __name__ == "__main__":

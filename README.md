@@ -23,16 +23,16 @@ You need to have also the files (from the Cloudian cluster / Puppet Master Host)
 	<Stagging Directory>/survey.csv
   	<Stagging Directory>/CloudianInstallConfiguration.txt
   
-Then, run the script in a directory of your choice (containing those 4 files) or explicitly specify the files mentioned above in the command line with the optional parameters (look at the "Run" Chapter").
+Then, run the script in a directory of your choice (containing those 4 files) or explicitly specify the files mentioned above in the command line with the optional parameters (look at the "Run" Chapter).
 
 # Tested On
-Tested on CentOS 7.4, Python 2.7.x, HyperStore 7.0.x and 7.1.x
+Tested on CentOS 7.4 & 7.5, Python 2.7.x & 3.6 & 3.7, HyperStore 7.0.x (1 to 6) & 7.1.x (1 to 4)
 
 Tested on HAProxy 1.5.x, 1.6.x and 1.8.x
 
 Cloudian clusters : 3 and more nodes on 1 DC (PoC + clusters running in PROD) and 12 nodes on 2 DCs without any preferences and 6 nodes on 2 DCs with affinity for the first DC (clusters running in PROD).
 
-Remote workstation : Should work on all OS which can support Python. Tested on Debian Stretch/Buster with Python 2.7.x and 3.7.x
+Remote workstation : Should work on all OS which can support Python. Tested on Debian Stretch/Buster with Python 2.7.x and 3.6 & 3.7
 
 # Run & Usage
 
@@ -54,7 +54,8 @@ First, you should have the files mentioned above in the Stagging Directory (or y
 **if you want to have the command usage, just run the script with --help option**
 
     root@cloudianone CloudianPackages# python haproxy_config.py --help
-    usage: haproxy_config.py [-h] [-s SURVEY] [-i INSTALL] [-bs3 BACKUP]
+    usage: haproxy_config.py [-h] [-s SURVEY] [-i INSTALL] [-bs3 BACKUPS3]
+                         [-ms MAILSERVER] [-mf MAILFROM] [-mt MAILTO]
 
     parameters for the script
     
@@ -65,10 +66,18 @@ First, you should have the files mentioned above in the Stagging Directory (or y
       -i INSTALL, --install INSTALL
                             indicate the installation file, default =
                             CloudianInstallConfiguration.txt
-      -bs3 BACKUPS3, --backups3 BACKUP
-                            indicate the DC in backup/stand-by mode for s3 protocol (HTTP and HTTPS)
+      -bs3 BACKUPS3, --backups3 BACKUPS3
+                            indicate the DC in backup/stand-by mode for s3,
+                            default=none
+      -ms MAILSERVER, --mailserver MAILSERVER
+                            mail server name or @IP for alerts
+      -mf MAILFROM, --mailfrom MAILFROM
+                            indicate the sender, default = haproxy@localhost
+      -mt MAILTO, --mailto MAILTO
+                            indicate the recipient, default = root@localhost
 
-**For only 1 DC, you can run a single line without any option (notice : I am using the stagging directory) :**
+
+**For only 1 DC, you can run a single line without any option (notice : I am using the stagging directory as my current directory) :**
 
 	root@cloudianone CloudianPackages# python haproxy_config.py 
 	Successful.
@@ -76,7 +85,7 @@ First, you should have the files mentioned above in the Stagging Directory (or y
     Please copy the file haproxy.cfg on the haproxy server (into /etc/haproxy/)
     Then restart the haproxy service on the haproxy server via systemctl command
 
-**or use the options, from another directory (notice : I am NOT using the stagging directory) :**
+**or use the options, from another directory (notice : I am NOT using the stagging directory as my current directory) :**
 
     [root@cloudianone ~]# python haproxy_config.py -s /root/CloudianPackages/survey.csv -i /root/CloudianPackages/CloudianInstallConfiguration.txt 
     Successful.
@@ -92,7 +101,7 @@ First, you should have the files mentioned above in the Stagging Directory (or y
     Please copy the file haproxy.cfg on the haproxy server (into /etc/haproxy/)
     Then restart the haproxy service on the haproxy server via systemctl command
 
-**For 2 DCs or more without any preferences. So load-balancing will occur on all nodes in the same manner.**
+**For 2 DCs or more without any preferences. So, load-balancing will occur on all nodes in the same manner.**
 
 In this case, you can run the command line like you would run it for 1 DC.
 All the nodes will be treated as others and the requests will be propagated to all nodes available no matter the location (aka DC).
@@ -121,6 +130,17 @@ The datacenter dc2 has Cloudian ndoes with a limited infrastructure.
 You would like to limit the bandwidth usage between the datacenters.
 (avoid : sending a s3 request to dc2 although all your s3 clients are based on dc1 except if dc1 nodes are down)
 
+**If you want to enable the mail parameters and send some alerts in case of a node or a service down, follow this :**
+The email is sent only when the service/server becomes unreachable (no email sent when the service/server comes up)
+
+    root@cloudianone CloudianPackages# python haproxy_config.py -ms smtp.demo.lab -mf haproxy@demo.lab -mt adminsys@demo.lab
+    Successful.
+    HAProxy config file is : haproxy.cfg
+    Please copy the file haproxy.cfg on the haproxy server (into /etc/haproxy/)
+    Then restart the haproxy service on the haproxy server via systemctl command
+
+Notice : During maintenance operations like reboots of nodes, your email server might deal with several emails (one per service down).
+
 **In all cases, grab the haproxy.cfg file created in the local directory and send it to the haproxy server (aka the load-balancer host)**
 
 you might want to backup the previous configuration of HAProxy on your HAProxy server. So, do it before please.
@@ -130,8 +150,37 @@ you might want to backup the previous configuration of HAProxy on your HAProxy s
 	
 	root@cloudianone CloudianPackages# scp haproxy.cfg root@haproxy_server:/etc/haproxy/haproxy.cfg
 
+Go to the HAProxy server by using SSH (or a console), then restart the haproxy service as mentioned.
+
+    plong@snoopy:~$ ssh -l root haproxy_server
+    root@haproxy's password: 
+    #
+    [root@haproxy ~]# systemctl restart haproxy
+    #
+    [root@haproxy ~]# systemctl status haproxy
+    ● haproxy.service - HAProxy Load Balancer
+       Loaded: loaded (/usr/lib/systemd/system/haproxy.service; enabled; vendor preset: disabled)
+       Active: active (running) since Fri 2019-06-14 16:53:46 CEST; 2s ago
+     Main PID: 1010 (haproxy-systemd)
+       CGroup: /system.slice/haproxy.service
+               ├─1010 /usr/sbin/haproxy-systemd-wrapper -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid
+               ├─1011 /usr/sbin/haproxy -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -Ds
+               └─1012 /usr/sbin/haproxy -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -Ds
+    
+    Jun 14 16:53:46 haproxy haproxy[1011]: Proxy cmc.demo.lab started.
+    Jun 14 16:53:46 haproxy haproxy[1011]: Proxy cmc.demo.lab started.
+    Jun 14 16:53:46 haproxy haproxy[1011]: Proxy https.cmc.demo.lab started.
+    Jun 14 16:53:46 haproxy haproxy[1011]: Proxy https.cmc.demo.lab started.
+    Jun 14 16:53:46 haproxy haproxy[1011]: Proxy s3-fr.demo.lab started.
+    Jun 14 16:53:46 haproxy haproxy[1011]: Proxy s3-fr.demo.lab started.
+    Jun 14 16:53:46 haproxy haproxy[1011]: Proxy https.s3-fr.demo.lab started.
+    Jun 14 16:53:46 haproxy haproxy[1011]: Proxy https.s3-fr.demo.lab started.
+    Jun 14 16:53:46 haproxy haproxy[1011]: Proxy s3-admin.demo.lab started.
+    Jun 14 16:53:46 haproxy haproxy[1011]: Proxy s3-admin.demo.lab started.
+
+
 # Version
-0.4
+0.5
 
 # Bugs & Suggestions
 Any bugs or suggestions, please contact the author directly.
