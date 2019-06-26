@@ -12,10 +12,14 @@ Use this tool with precautions (review the config file created manually for a do
 Cloudian can NOT be involved for any bugs or misconfiguration due to this tool. So you are using it at your own risks and be aware of the restrictions.
 
 # Deployment
-Download only the files :
+Download only the files below and put them into a directory of your choice (ex : /root/haproxy_config/) :
 
 	haproxy_config.py
   	haproxy_template.cfg
+
+or use the rpm package :
+
+    haproxy_config-<version>.rpm
 
 You need to have also the files (from the Cloudian cluster / Puppet Master Host) :
 (notice : the "Stagging Directory" is by default : /root/CloudianPackages for the standard deployment excluding any software upgrade).
@@ -24,6 +28,10 @@ You need to have also the files (from the Cloudian cluster / Puppet Master Host)
   	<Stagging Directory>/CloudianInstallConfiguration.txt
   
 Then, run the script in a directory of your choice (containing those 4 files) or explicitly specify the files mentioned above in the command line with the optional parameters (look at the "Run" Chapter).
+
+By default, the rpm installation destination is :
+
+    /root/haproxy_config/
 
 # Tested On
 Tested on CentOS 7.4 & 7.5, Python 2.7.x & 3.6 & 3.7, HyperStore 7.0.x (1 to 6) & 7.1.x (1 to 4)
@@ -42,14 +50,14 @@ I am using directly the Stagging Directory : /root/CloudianPackages on the puppe
 
 First, you should have the files mentioned above in the Stagging Directory (or you can locate them) :
 
-	root@cloudianone CloudianPackages# ls haproxy*
+	root@cloudianone ~# ls ./CloudianPackages/haproxy*
 	haproxy_config.py  haproxy_template.cfg
 
-	root@cloudianone CloudianPackages# ls survey.csv 
-	survey.csv
+	root@cloudianone ~# find . -name "survey.csv"
+	./CloudianPackages/survey.csv
 
-	root@cloudianone CloudianPackages# ls CloudianInstallConfiguration.txt 
-	CloudianInstallConfiguration.txt
+	root@cloudianone ~# find . -name "CloudianInstallConfiguration.txt"
+	./CloudianPackages/CloudianInstallConfiguration.txt
 
 **if you want to have the command usage, just run the script with --help option**
 
@@ -87,7 +95,7 @@ First, you should have the files mentioned above in the Stagging Directory (or y
 
 **or use the options, from another directory (notice : I am NOT using the stagging directory as my current directory) :**
 
-    [root@cloudianone ~]# python haproxy_config.py -s /root/CloudianPackages/survey.csv -i /root/CloudianPackages/CloudianInstallConfiguration.txt 
+    [root@cloudianone haproxy_config]# python haproxy_config.py -s /root/CloudianPackages/survey.csv -i /root/CloudianPackages/CloudianInstallConfiguration.txt 
     Successful.
     HAProxy config file is : haproxy.cfg
     Please copy the file haproxy.cfg on the haproxy server (into /etc/haproxy/)
@@ -118,7 +126,7 @@ In this example, we have 2 DataCenters : dc1 and dc2.
 The dataCenter "dc1" is the active datacenter for the s3 requests and dc2 is only the passive dataCenter in case of a DC failure.
 Based on that choice, all s3 requests will be sent by HAProxy to only the "dc1" nodes in a nominal state else on the "dc2" nodes (in case of a failure of dc1).
 
-    plong@snoopy:~$ python haproxy_config.py -s survey.csv -i CloudianInstallConfiguration.txt -bs3 dc2
+    root@cloudianone haproxy_config# python haproxy_config.py -s survey.csv -i CloudianInstallConfiguration.txt -bs3 dc2
     Successful.
     HAProxy config file is : haproxy.cfg
     This configuration include the backup option for the DC : dc2

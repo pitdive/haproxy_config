@@ -7,6 +7,7 @@
 #
 # Peter Long / v=0.5 / Jun 2019
 # reflect changes included in HyperStore LB Guide v11 + email configuration & send email alerts for s3 HTTPS + ADMIN API
+# + build first RPM packages including the files needed
 
 from string import Template
 import argparse
