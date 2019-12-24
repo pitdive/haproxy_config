@@ -5,13 +5,58 @@
 #         work on parameter like : monitor fail & monitor-uri
 #         work on a wizard instead parameters in command line (needed ??)
 #
-# Peter Long / v=0.5 / Jun 2019
-# reflect changes included in HyperStore LB Guide v11 + email configuration & send email alerts for s3 HTTPS + ADMIN API
-# + build first RPM packages including the files needed
+# Peter Long / v=0.6 / Dec 2019
+# Change haproxy_template.cfg : add notice to hyperstore load-balancing guide (version #)
+# Compatible with HS 7.2 (IAM)
+# scp & ssh on haproxy VM
 
-from string import Template
 import argparse
-import os.path
+import getpass
+import os
+from string import Template
+
+# I am using python2 compatible commands (hyperstore uses python2) instead python3 commands.
+# force input = raw_input
+if hasattr(__builtins__, 'raw_input'):
+    input = raw_input
+
+
+# Push the haproxy config file to the haproxy server by using scp & ssh
+# source : file "haproxy.cfg" standard
+def push_config(haproxy_file):
+    print("\n Your HAProxy config file is : " + haproxy_file + " and it is in the local/current directory\n")
+    # if use_backup_option:
+    #    print("This configuration include the backup option for the DC : " + args.backups3)
+    answer = input("Do you want to push & run this config file to your haproxy server ? (yes / no) : ")
+    answer = answer.strip().lower()
+    if answer.startswith('y'):
+        # Force standard configuration for the SSH (root = avoid permission conflict)
+        username = "root"
+        hostname = input("Please, enter the IP address or the hostname of your haproxy server : ")
+        print("Enter the root password for the connexion")
+        password = getpass.getpass()
+        # Remote actions on the haproxy server
+        print("Trying to connect to the host : " + hostname + " and then enabling the haproxy service on the haproxy server...")
+        os.system("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
+                  + username + "@" + hostname + " systemctl enable haproxy")
+        print("Backing up the old config on the haproxy server...")
+        os.system("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
+                  + username + "@" + hostname + " cp /etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg.orig")
+        print("Copying config file to haproxy server...")
+        os.system("sshpass -p" + password + " scp -o 'StrictHostKeyChecking no' " + haproxy_file + " "
+                  + username + "@" + hostname + ":/etc/haproxy/haproxy.cfg")
+        print("Restarting haproxy service on the haproxy server...")
+        os.system("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
+                  + username + "@" + hostname + " systemctl restart haproxy")
+        print("Checking status of haproxy service...")
+        os.system("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
+                  + username + "@" + hostname + " systemctl status haproxy")
+    elif answer.startswith('n'):
+        print("Please copy the file " + haproxy_file + " on the haproxy server (into /etc/haproxy/)")
+        print("Then restart the haproxy service on the haproxy server via systemctl command")
+        print("example : systemctl restart haproxy")
+    else:
+        print("Wrong answer. Exiting...")
 
 
 def main():
@@ -22,6 +67,8 @@ def main():
     S3_HTTP_PARAMETERS = ":80 check inter 5s rise 1 fall 2"
     S3_HTTPS_PARAMETERS = ":443 check check-ssl verify none inter 5s rise 1 fall 2"
     ADMIN_HTTPS_PARAMETERS = ":19443 check check-ssl verify none inter 5s rise 1 fall 2"
+    IAM_HTTP_PARAMETERS = ":16080 check inter 5s rise 1 fall 2"
+    IAM_HTTPS_PARAMETERS = ":16443 check check-ssl verify none inter 5s rise 1 fall 2"
     # for options in the command line
     DEFAULT_BACKUP = "nobackupatall"
     DEFAULT_MAILSERVER = "nomailserver"
@@ -31,6 +78,7 @@ def main():
     install_config_file = "CloudianInstallConfiguration.txt"
     template_file = "haproxy_template.cfg"
     haproxy_file = "haproxy.cfg"
+    # Force empty value
     cmc_endpoint = ""
     cmc_https_list = []
     s3_endpoint = ""
@@ -38,6 +86,9 @@ def main():
     s3_https_list = []
     admin_endpoint = ""
     admin_https_list = []
+    iam_endpoint = ""
+    iam_http_list = []
+    iam_https_list = []
     #    backup_parameter = ""
     use_backup_option = False
     mailserver = []
@@ -77,9 +128,15 @@ def main():
     else:
         mailserver.append("#no mail configuration")
 
-    # Check if files exist
+    # 1st - Check if the haproxy_template.cfg exists
+    if not (os.path.isfile(template_file)):
+        print("Error, the file : " + template_file + " does not exist.")
+        print("Check the path and the filename and try again")
+        exit(1)
+
+    # 2nd - Check if the two required files exist
     if not ((os.path.isfile(survey_file)) and (os.path.isfile(install_config_file))):
-        print("Error, the expected files are not valid files")
+        print("Error, the required files : " + survey_file + " & " + install_config_file + " are wrong.")
         print("Check the path and the filename and try again")
         exit(1)
 
@@ -98,6 +155,10 @@ def main():
             s3_http_list.append(HEADER + listing[1] + " " + listing[2] + S3_HTTP_PARAMETERS + " " + backup_parameter)
             s3_https_list.append(HEADER + listing[1] + " " + listing[2] + S3_HTTPS_PARAMETERS + " " + backup_parameter)
             admin_https_list.append(HEADER + listing[1] + " " + listing[2] + ADMIN_HTTPS_PARAMETERS)
+            iam_http_list.append(HEADER + listing[1] + " " + listing[2] + IAM_HTTP_PARAMETERS + " "
+                                 + backup_parameter)
+            iam_https_list.append(HEADER + listing[1] + " " + listing[2] + IAM_HTTPS_PARAMETERS + " "
+                                  + backup_parameter)
             line = filein.readline()
     if (not dc_exist) and use_backup_option:
         print("Error, the expected DC : " + args.backups3 + " is not valid")
@@ -105,7 +166,7 @@ def main():
         print("Check the DC name or the survey file and try again")
         exit(1)
 
-    # Retrieve Endpoint information (s3 domain, admin domain, cmc domain)
+    # Retrieve Endpoint information (s3 domain, admin domain, cmc domain, iam domain)
     # source : file "CloudianInstallConfiguration.txt"
     with open(install_config_file, "r") as filein:
         for line in filein:
@@ -115,18 +176,21 @@ def main():
                 admin_endpoint = line.strip().split('=')[1]
             elif "cloudian_cmc_domain" in line:
                 cmc_endpoint = line.strip().split('=')[1]
+            elif "cloudian_iam_host=" in line:
+                iam_endpoint = line.strip().split('=')[1]
 
-        # Create the HA proxy config file
-        # destination : file "haproxy.cfg" based on the template "haproxy_template.txt"
+    # Create the HA proxy config file
+    # destination : file "haproxy.cfg" based on the template "haproxy_template.cfg"
     with open(template_file, "r") as filein:
         # Read template file
         src = Template(filein.read())
         # Concatenate infos
         d = {'mailserver_line': '\n'.join(mailserver), 'cmc_endpoint': cmc_endpoint, 's3_endpoint': s3_endpoint,
-             'admin_endpoint': admin_endpoint,
+             'admin_endpoint': admin_endpoint, 'iam_endpoint': iam_endpoint,
              'cmc_https_list': '\n'.join(cmc_https_list),
              's3_http_list': '\n'.join(s3_http_list), 's3_https_list': '\n'.join(s3_https_list),
-             'admin_https_list': '\n'.join(admin_https_list), 'mail_list': '\n'.join(mail_list)}
+             'admin_https_list': '\n'.join(admin_https_list), 'mail_list': '\n'.join(mail_list),
+             'iam_http_list': '\n'.join(iam_http_list), 'iam_https_list': '\n'.join(iam_https_list)}
         # Substitution in the template --> result
         result = src.substitute(d)
         # Write result into haproxy file
@@ -134,13 +198,11 @@ def main():
         fileout.write(result)
         fileout.close()
 
-    print("Successful.\nHAProxy config file is : " + haproxy_file + " in the local/current directory")
-    if use_backup_option:
-        print("This configuration include the backup option for the DC : " + args.backups3)
-    print("Please copy the file " + haproxy_file + " on the haproxy server (into /etc/haproxy/)")
-    print("Then restart the haproxy service on the haproxy server via systemctl command")
-    print("example : systemctl restart haproxy")
+    # Push the configuration file to the haproxy server
+    # Prompt : yes or no + password
+    push_config(haproxy_file)
 
 
 if __name__ == "__main__":
     main()
+
