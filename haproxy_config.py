@@ -1,3 +1,4 @@
+#!/usr/bin/python
 #
 # haproxy_build_config python script
 # TODO : more complex stuff like global affinities (2 config for 2 HAProxy, 2 DCs)
@@ -5,11 +6,10 @@
 #         work on parameter like : monitor fail & monitor-uri
 #         work on a wizard instead parameters in command line (needed ??)
 #
-# Peter Long / v=0.6 / Dec 2019
-# Change haproxy_template.cfg : add notice to hyperstore load-balancing guide (version #)
-# Compatible with HS 7.2 (IAM)
-# scp & ssh on haproxy VM
+# Peter Long / v=0.6.1 / Jan 2020
+# minor changes + improve backward compatibility with HS 7.1.x (due to IAM_DOMAIN not present)
 
+# I can't use python methods or modules which are not installed on a HyperStore node
 import argparse
 import getpass
 import os
@@ -25,18 +25,18 @@ if hasattr(__builtins__, 'raw_input'):
 # source : file "haproxy.cfg" standard
 def push_config(haproxy_file):
     print("\n Your HAProxy config file is : " + haproxy_file + " and it is in the local/current directory\n")
-    # if use_backup_option:
-    #    print("This configuration include the backup option for the DC : " + args.backups3)
     answer = input("Do you want to push & run this config file to your haproxy server ? (yes / no) : ")
     answer = answer.strip().lower()
     if answer.startswith('y'):
         # Force standard configuration for the SSH (root = avoid permission conflict)
         username = "root"
         hostname = input("Please, enter the IP address or the hostname of your haproxy server : ")
-        print("Enter the root password for the connexion")
+        print("Enter the " + username + " password for the connexion : ")
         password = getpass.getpass()
         # Remote actions on the haproxy server
-        print("Trying to connect to the host : " + hostname + " and then enabling the haproxy service on the haproxy server...")
+        print("Trying to connect to the host : " + hostname + " with the " + username + " password ..." +
+              " and then checking some parameters for you ...")
+        print("Enabling the haproxy service on the haproxy server...")
         os.system("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
                   + username + "@" + hostname + " systemctl enable haproxy")
         print("Backing up the old config on the haproxy server...")
@@ -174,10 +174,16 @@ def main():
                 s3_endpoint = line.strip().split('=')[1]
             elif "cloudian_admin_host=" in line:
                 admin_endpoint = line.strip().split('=')[1]
-            elif "cloudian_cmc_domain" in line:
+            elif "cloudian_cmc_domain=" in line:
                 cmc_endpoint = line.strip().split('=')[1]
             elif "cloudian_iam_host=" in line:
                 iam_endpoint = line.strip().split('=')[1]
+
+    # Test if IAM domain is present (not the case for 7.0 or 7.1 config files)
+    if not iam_endpoint:
+        print(" *** IAM Endpoint not found. Expected an older version like HS 7.0.x or 7.1.x ***")
+        iam_endpoint = "iam.not-yet-configured"
+        print("Your HAProxy config file will use a temporary iam domain instead like : " + iam_endpoint)
 
     # Create the HA proxy config file
     # destination : file "haproxy.cfg" based on the template "haproxy_template.cfg"
@@ -205,4 +211,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

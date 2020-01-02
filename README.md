@@ -12,13 +12,13 @@ Use this tool with precautions (review the config file created manually for a do
 Cloudian can NOT be involved for any bugs or misconfiguration due to this tool. So you are using it at your own risks and be aware of the restrictions.
 
 # Tested On
-Tested on CentOS 7.4 & 7.5, Python 2.7.x & 3.6 & 3.7, HyperStore 7.1.x (4 to 5) & 7.2RC
+Tested on CentOS 7.4 & 7.5, Python 2.7.x & 3.7, HyperStore 7.1.x (4 to 5) & 7.2RC
 
 Tested on HAProxy 1.5.x, 1.6.x and 1.8.x
 
 Cloudian clusters : 3 and more nodes on 1 DC (PoC + clusters running in PROD) and 12 nodes on 2 DCs without any preferences and 6 nodes on 2 DCs with affinity for the first DC (clusters running in PROD).
 
-Remote workstation : Should work on all OS which can support Python. Tested on Debian Stretch/Buster with Python 2.7.x and 3.6 & 3.7
+Remote workstation : Should work on all OS which can support Python. Tested on Debian Stretch/Buster with Python 2.7.x and 3.7
 
 # Deployment
 Download only the files below and put them into a directory of your choice (ex : /root/haproxy_config/) :
@@ -287,7 +287,7 @@ Go to the HAProxy server by using SSH (or a console), then restart the haproxy s
 
 
 # Version
-0.6
+0.6.1
 
 # Bugs & Suggestions
 Any bugs or suggestions, please contact the author directly.
