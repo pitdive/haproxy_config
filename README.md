@@ -14,7 +14,7 @@ Cloudian can NOT be involved for any bugs or misconfiguration due to this tool. 
 # Tested On
 Tested on CentOS 7.4 & 7.5, Python 2.7.x & 3.7, HyperStore 7.1.x (4 to 5) & 7.2RC
 
-Tested on HAProxy 1.5.x, 1.6.x and 1.8.x
+Tested on HAProxy 1.5.x, 1.6.x, 1.8.x and 2.1.2 
 
 Cloudian clusters : 3 and more nodes on 1 DC (PoC + clusters running in PROD) and 12 nodes on 2 DCs without any preferences and 6 nodes on 2 DCs with affinity for the first DC (clusters running in PROD).
 
