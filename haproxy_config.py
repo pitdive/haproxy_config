@@ -1,12 +1,16 @@
 #!/usr/bin/python
 #
 # haproxy_build_config python script
-# TODO : more complex stuff like global affinities (2 config for 2 HAProxy, 2 DCs)
-#         work on parameters like : maxconn, nbproc, nbthread, cpu-map
-#         work on parameter like : monitor fail & monitor-uri
-#         work on a wizard instead parameters in command line (needed ??)
+# TODO :Add checks and tests for function : push_config => ssh could return errors
+#       SQS ports (SQS is disabled by default => wait for next release)
+#       more complex stuff like global affinities (2 config for 2 HAProxy, 2 DCs) => in progress
+#       work on parameters like : maxconn, nbproc, nbthread, cpu-map
+#       work on parameter like : monitor fail & monitor-uri
+#       work on a wizard instead parameters in command line (needed ??)
 #
-# Peter Long / v=0.6.1 / Jan 2020
+# Peter Long / v=0.7 / Feb 2020
+# automatic discovery of the location for survey.csv and CloudianInstallConfiguration.txt
+# add an automatic refresh for the statistics page
 # minor changes + improve backward compatibility with HS 7.1.x (due to IAM_DOMAIN not present)
 
 # I can't use python methods or modules which are not installed on a HyperStore node
@@ -20,43 +24,57 @@ from string import Template
 if hasattr(__builtins__, 'raw_input'):
     input = raw_input
 
+def print_green(text):
+    print("\033[92m{}\033[00m" .format(text))
+
+def print_red(text):
+    print("\033[91m{}\033[00m" .format(text))
 
 # Push the haproxy config file to the haproxy server by using scp & ssh
+# can't use "paramiko" python module as it is not present on the OS deployed on the appliance
 # source : file "haproxy.cfg" standard
 def push_config(haproxy_file):
     print("\n Your HAProxy config file is : " + haproxy_file + " and it is in the local/current directory\n")
+    print("You need to have the root access to push this config.")
     answer = input("Do you want to push & run this config file to your haproxy server ? (yes / no) : ")
     answer = answer.strip().lower()
-    if answer.startswith('y'):
+    if answer.startswith('yes'):
         # Force standard configuration for the SSH (root = avoid permission conflict)
         username = "root"
         hostname = input("Please, enter the IP address or the hostname of your haproxy server : ")
-        print("Enter the " + username + " password for the connexion : ")
+        print_red("Enter the " + username + " password for the connexion ... ")
         password = getpass.getpass()
         # Remote actions on the haproxy server
         print("Trying to connect to the host : " + hostname + " with the " + username + " password ..." +
               " and then checking some parameters for you ...")
-        print("Enabling the haproxy service on the haproxy server...")
+        print_green("Enabling the haproxy service on the haproxy server...")
         os.system("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
                   + username + "@" + hostname + " systemctl enable haproxy")
-        print("Backing up the old config on the haproxy server...")
+        print_green("Backing up the old config on the haproxy server...")
         os.system("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
                   + username + "@" + hostname + " cp /etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg.orig")
-        print("Copying config file to haproxy server...")
+        print_green("Copying config file to haproxy server...")
         os.system("sshpass -p" + password + " scp -o 'StrictHostKeyChecking no' " + haproxy_file + " "
                   + username + "@" + hostname + ":/etc/haproxy/haproxy.cfg")
-        print("Restarting haproxy service on the haproxy server...")
+        print_green("Restarting haproxy service on the haproxy server...")
         os.system("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
                   + username + "@" + hostname + " systemctl restart haproxy")
-        print("Checking status of haproxy service...")
+        print_green("Checking status of haproxy service...")
         os.system("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
                   + username + "@" + hostname + " systemctl status haproxy")
-    elif answer.startswith('n'):
-        print("Please copy the file " + haproxy_file + " on the haproxy server (into /etc/haproxy/)")
-        print("Then restart the haproxy service on the haproxy server via systemctl command")
-        print("example : systemctl restart haproxy")
+    elif answer.startswith('no'):
+        print_green("Enable the haproxy service on the haproxy server via systemctl command")
+        print_green("next, copy the file " + haproxy_file + " to the haproxy server (into /etc/haproxy/)")
+        print_green("Then restart the haproxy service on the haproxy server.")
     else:
         print("Wrong answer. Exiting...")
+
+
+def file_available(filename):
+    if not (os.path.isfile(filename)):
+        print("Error, the file : " + filename + " is missing.")
+        print("Check the path and the filename and try again")
+        exit(1)
 
 
 def main():
@@ -76,6 +94,8 @@ def main():
     # VARIABLE
     survey_file = "survey.csv"
     install_config_file = "CloudianInstallConfiguration.txt"
+    servicemap_file = "/opt/cloudian/conf/cloudianservicemap.json"
+    install_path = "/root/CloudianPackages"
     template_file = "haproxy_template.cfg"
     haproxy_file = "haproxy.cfg"
     # Force empty value
@@ -129,16 +149,24 @@ def main():
         mailserver.append("#no mail configuration")
 
     # 1st - Check if the haproxy_template.cfg exists
-    if not (os.path.isfile(template_file)):
-        print("Error, the file : " + template_file + " does not exist.")
-        print("Check the path and the filename and try again")
-        exit(1)
+    file_available(template_file)
+
+    # Automatic discovery of the information needed (survey + CloudianInstallConfiguration)
+    if os.path.isfile(servicemap_file):
+        with open(servicemap_file, "r") as filein:
+            for line in filein:
+                if "cloudianInstall.sh" in line:
+                    install_path=line.strip().split(':')[4].split(',')[0].split('\"')[1].split('cloudianInstall.sh')[0]
+                    print_green("We are considering the following path as the current path for the cloudian installation : " + install_path)
+                    survey_file = install_path + survey_file
+                    install_config_file = install_path + install_config_file
+    else:
+        print_green("We are considering this host is not the Cloudian puppet master")
+        # if there is no path available in the servicemap file, then the script will keep the current path
 
     # 2nd - Check if the two required files exist
-    if not ((os.path.isfile(survey_file)) and (os.path.isfile(install_config_file))):
-        print("Error, the required files : " + survey_file + " & " + install_config_file + " are wrong.")
-        print("Check the path and the filename and try again")
-        exit(1)
+    file_available(survey_file)
+    file_available(install_config_file)
 
     # Retrieve list of nodes + IPs and build lists for each TCP service
     # source : file "survey.csv"
@@ -181,7 +209,7 @@ def main():
 
     # Test if IAM domain is present (not the case for 7.0 or 7.1 config files)
     if not iam_endpoint:
-        print(" *** IAM Endpoint not found. Expected an older version like HS 7.0.x or 7.1.x ***")
+        print_green(" *** IAM Endpoint not found. Looks like it is an older version : HS 7.0.x or 7.1.x *** ")
         iam_endpoint = "iam.not-yet-configured"
         print("Your HAProxy config file will use a temporary iam domain instead like : " + iam_endpoint)
 
