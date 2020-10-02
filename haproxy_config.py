@@ -1,23 +1,23 @@
 #!/usr/bin/python
 #
 # haproxy_build_config python script
-# TODO :Add checks and tests for function : push_config => ssh could return errors
-#       SQS ports (SQS is disabled by default => wait for next release)
-#       more complex stuff like global affinities (2 config for 2 HAProxy, 2 DCs) => in progress
-#       work on parameters like : maxconn, nbproc, nbthread, cpu-map
+# TODO :SQS ports (SQS is disabled by default => wait for next release)
 #       work on parameter like : monitor fail & monitor-uri
 #       work on a wizard instead parameters in command line (needed ??)
+# tuning : nbproc (avoid), nbthread (auto-tuned), cpu-map (avoid)
 #
-# Peter Long / v=0.7 / Feb 2020
-# automatic discovery of the location for survey.csv and CloudianInstallConfiguration.txt
-# add an automatic refresh for the statistics page
-# minor changes + improve backward compatibility with HS 7.1.x (due to IAM_DOMAIN not present)
+# Peter Long / v=1.0 / Oct 2020
+# discovery of the new AdminAPI random password generated during the installation for 7.2.2
+# backward compatibility for the 7.0.x, 7.1.x
+# remove hiding headers with option httpchk --> deprecated for HAProxy > 2.x (http-check send required)
 
 # I can't use python methods or modules which are not installed on a HyperStore node
 import argparse
 import getpass
 import os
+import base64   # compatibility with Python 3.x
 from string import Template
+
 
 # I am using python2 compatible commands (hyperstore uses python2) instead python3 commands.
 # force input = raw_input
@@ -30,8 +30,15 @@ def print_green(text):
 def print_red(text):
     print("\033[91m{}\033[00m" .format(text))
 
+# Send Command by using os.system library and manage the return code - keep compatibility/less intrusive
+def send_command(command):
+    exitcode = os.system(command)
+    if (exitcode != 0):
+        print_red("Error, the status is not ok. We stop the process at this point and let you check manually. Error = " + str(exitcode))
+        exit(exitcode)
+
 # Push the haproxy config file to the haproxy server by using scp & ssh
-# can't use "paramiko" python module as it is not present on the OS deployed on the appliance
+# can't use "paramiko" python module as it is not present on the OS deployed on the cloudian appliance
 # source : file "haproxy.cfg" standard
 def push_config(haproxy_file):
     print("\n Your HAProxy config file is : " + haproxy_file + " and it is in the local/current directory\n")
@@ -45,22 +52,24 @@ def push_config(haproxy_file):
         print_red("Enter the " + username + " password for the connexion ... ")
         password = getpass.getpass()
         # Remote actions on the haproxy server
-        print("Trying to connect to the host : " + hostname + " with the " + username + " password ..." +
+        print_green("Trying to connect to the host : " + hostname + " with the " + username + " password ..." +
               " and then checking some parameters for you ...")
+        send_command("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
+                     + username + "@" + hostname + " haproxy -v | grep -i 'version'")
         print_green("Enabling the haproxy service on the haproxy server...")
-        os.system("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
-                  + username + "@" + hostname + " systemctl enable haproxy")
+        send_command("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
+                     + username + "@" + hostname + " systemctl enable haproxy")
         print_green("Backing up the old config on the haproxy server...")
-        os.system("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
+        send_command("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
                   + username + "@" + hostname + " cp /etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg.orig")
         print_green("Copying config file to haproxy server...")
-        os.system("sshpass -p" + password + " scp -o 'StrictHostKeyChecking no' " + haproxy_file + " "
+        send_command("sshpass -p" + password + " scp -o 'StrictHostKeyChecking no' " + haproxy_file + " "
                   + username + "@" + hostname + ":/etc/haproxy/haproxy.cfg")
         print_green("Restarting haproxy service on the haproxy server...")
-        os.system("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
+        send_command("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
                   + username + "@" + hostname + " systemctl restart haproxy")
         print_green("Checking status of haproxy service...")
-        os.system("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
+        send_command("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
                   + username + "@" + hostname + " systemctl status haproxy")
     elif answer.startswith('no'):
         print_green("Enable the haproxy service on the haproxy server via systemctl command")
@@ -69,17 +78,15 @@ def push_config(haproxy_file):
     else:
         print("Wrong answer. Exiting...")
 
-
 def file_available(filename):
     if not (os.path.isfile(filename)):
         print("Error, the file : " + filename + " is missing.")
         print("Check the path and the filename and try again")
         exit(1)
 
-
 def main():
     # CONSTANT
-    # for building the list of nodes for each TCP service
+    # to build the list of nodes for each TCP service
     HEADER = "    server "
     CMC_HTTPS_PARAMETERS = ":8443 check check-ssl verify none inter 5s rise 1 fall 2"
     S3_HTTP_PARAMETERS = ":80 check inter 5s rise 1 fall 2"
@@ -95,9 +102,13 @@ def main():
     survey_file = "survey.csv"
     install_config_file = "CloudianInstallConfiguration.txt"
     servicemap_file = "/opt/cloudian/conf/cloudianservicemap.json"
+    common_file = "common.csv"
+    common_extra_path = "/manifests/extdata/"
     install_path = "/root/CloudianPackages"
     template_file = "haproxy_template.cfg"
     haproxy_file = "haproxy.cfg"
+    adminapi_password = "public"
+    adminapi_user = "sysadmin"
     # Force empty value
     cmc_endpoint = ""
     cmc_https_list = []
@@ -106,6 +117,7 @@ def main():
     s3_https_list = []
     admin_endpoint = ""
     admin_https_list = []
+    admin_auth = ""
     iam_endpoint = ""
     iam_http_list = []
     iam_https_list = []
@@ -118,21 +130,31 @@ def main():
     # Test arguments from command line
     # Define VARIABLE : install_config_file and survey_file in any case
     parser = argparse.ArgumentParser(description='parameters for the script')
-    parser.add_argument('-s', '--survey', help="indicate the survey file, default = survey.csv",
+    parser.add_argument('-s', '--survey',
+                        help="indicate the survey file, default = survey.csv",
                         default=survey_file)
     parser.add_argument('-i', '--install',
                         help="indicate the installation file, default = CloudianInstallConfiguration.txt",
                         default=install_config_file)
+    parser.add_argument('-c', '--common',
+                        help="indicate the common.csv file, default = common.csv",
+                        default=common_file)
     parser.add_argument('-bs3', '--backups3',
-                        help="indicate the DC in backup/stand-by mode for s3, default=none", default=DEFAULT_BACKUP)
-    parser.add_argument('-ms', '--mailserver', help="mail server name or @IP for alerts", default=DEFAULT_MAILSERVER)
-    parser.add_argument('-mf', '--mailfrom', help="indicate the sender, default = haproxy@localhost",
+                        help="indicate the DC in backup/stand-by mode for s3, default=none",
+                        default=DEFAULT_BACKUP)
+    parser.add_argument('-ms', '--mailserver',
+                        help="mail server name or @IP for alerts",
+                        default=DEFAULT_MAILSERVER)
+    parser.add_argument('-mf', '--mailfrom',
+                        help="indicate the sender, default = haproxy@localhost",
                         default='haproxy@localhost')
-    parser.add_argument('-mt', '--mailto', help="indicate the recipient, default = root@localhost",
+    parser.add_argument('-mt', '--mailto',
+                        help="indicate the recipient, default = root@localhost",
                         default='root@localhost')
     args = parser.parse_args()
-    survey_file = args.survey
-    install_config_file = args.install
+ #   survey_file = args.survey
+ #   install_config_file = args.install
+ #   common_file = args.common
     # Define if we are using the "backup" parameter
     if args.backups3 != DEFAULT_BACKUP:
         use_backup_option = True
@@ -147,26 +169,36 @@ def main():
         mail_list.append("    email-alert level alert")
     else:
         mailserver.append("#no mail configuration")
+        mail_list.append("    #no mail configuration")
 
     # 1st - Check if the haproxy_template.cfg exists
     file_available(template_file)
 
-    # Automatic discovery of the information needed (survey + CloudianInstallConfiguration)
+    # Automatic discovery of the information needed (survey + CloudianInstallConfiguration + common.csv)
+    # By-pass parameters indicated in the command-line if we are on the cloudian puppet host
     if os.path.isfile(servicemap_file):
         with open(servicemap_file, "r") as filein:
             for line in filein:
                 if "cloudianInstall.sh" in line:
-                    install_path=line.strip().split(':')[4].split(',')[0].split('\"')[1].split('cloudianInstall.sh')[0]
+                    install_path = line.strip().split(':')[4].split(',')[0].split('\"')[1].split('cloudianInstall.sh')[0]
                     print_green("We are considering the following path as the current path for the cloudian installation : " + install_path)
                     survey_file = install_path + survey_file
                     install_config_file = install_path + install_config_file
+                if "configdir" in line:
+                    common_path = line.strip().split(':')[3].split(',')[0].split('\"')[1]
+                    common_file = common_path + common_extra_path + common_file
+                    print_green("Common config path found too.")
     else:
-        print_green("We are considering this host is not the Cloudian puppet master")
-        # if there is no path available in the servicemap file, then the script will keep the current path
+        print_green("We are considering this host is NOT the Cloudian puppet master")
+        # if there is no servicemap file, then the script will keep the defaults or options
+        survey_file = args.survey
+        install_config_file = args.install
+        common_file = args.common
 
-    # 2nd - Check if the two required files exist
+    # 2nd - Check if the three required files exist on the host
     file_available(survey_file)
     file_available(install_config_file)
+    file_available(common_file)
 
     # Retrieve list of nodes + IPs and build lists for each TCP service
     # source : file "survey.csv"
@@ -213,17 +245,30 @@ def main():
         iam_endpoint = "iam.not-yet-configured"
         print("Your HAProxy config file will use a temporary iam domain instead like : " + iam_endpoint)
 
+    # Retrieve the AdminAPI password
+    # source : file "common.csv"
+    with open(common_file, "r") as filein:
+        for line in filein:
+            if "admin_auth_pass," in line:
+                adminapi_password = line.strip().split(',')[2].split('\"')[0]
+            if "admin_auth_user," in line:
+                adminapi_user = line.strip().split(',')[1]
+
+    # Encode the login : password to base64 in any case (default parameters)
+    admin_auth = adminapi_user + ":" + adminapi_password
+    admin_auth=base64.b64encode(admin_auth.encode("utf-8"))     # compatibility with Python 3.x str/bytes
+    admin_auth = "'Basic " + admin_auth.decode() + "'"          # compatibility with Python 3.x str/bytes
+
     # Create the HA proxy config file
     # destination : file "haproxy.cfg" based on the template "haproxy_template.cfg"
     with open(template_file, "r") as filein:
         # Read template file
         src = Template(filein.read())
-        # Concatenate infos
         d = {'mailserver_line': '\n'.join(mailserver), 'cmc_endpoint': cmc_endpoint, 's3_endpoint': s3_endpoint,
-             'admin_endpoint': admin_endpoint, 'iam_endpoint': iam_endpoint,
+             'admin_endpoint': admin_endpoint, 'iam_endpoint': iam_endpoint, 'admin_auth': admin_auth,
              'cmc_https_list': '\n'.join(cmc_https_list),
              's3_http_list': '\n'.join(s3_http_list), 's3_https_list': '\n'.join(s3_https_list),
-             'admin_https_list': '\n'.join(admin_https_list), 'mail_list': '\n'.join(mail_list),
+             'admin_https_list': '\n'.join(admin_https_list), 'mail_list': ''.join(mail_list),
              'iam_http_list': '\n'.join(iam_http_list), 'iam_https_list': '\n'.join(iam_https_list)}
         # Substitution in the template --> result
         result = src.substitute(d)
