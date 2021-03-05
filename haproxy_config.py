@@ -2,14 +2,15 @@
 #
 # haproxy_build_config python script
 # TODO :SQS ports (SQS is disabled by default => wait for next release)
-#       work on parameter like : monitor fail & monitor-uri
-#       work on a wizard instead parameters in command line (needed ??)
+#       work on a wizard instead parameters in command line or website (needed ?? / pwd security ?)
+#       Think on HSH feature --> Sig file ?
 # tuning : nbproc (avoid), nbthread (auto-tuned), cpu-map (avoid)
 #
-# Peter Long / v=1.0 / Oct 2020
-# discovery of the new AdminAPI random password generated during the installation for 7.2.2
-# backward compatibility for the 7.0.x, 7.1.x
-# remove hiding headers with option httpchk --> deprecated for HAProxy > 2.x (http-check send required)
+# Peter Long / v=1.1 / March 2021
+# compatibility with 7.2.4 (IAM HTTPS)
+# IAM EndPoint warning if it is still based on AdminAPI Endpoint
+# Add --folder command line option to specify a folder instead of all config files needed
+# minor changes for stats page
 
 # I can't use python methods or modules which are not installed on a HyperStore node
 import argparse
@@ -72,17 +73,21 @@ def push_config(haproxy_file):
         send_command("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
                   + username + "@" + hostname + " systemctl status haproxy")
     elif answer.startswith('no'):
-        print_green("Enable the haproxy service on the haproxy server via systemctl command")
-        print_green("next, copy the file " + haproxy_file + " to the haproxy server (into /etc/haproxy/)")
-        print_green("Then restart the haproxy service on the haproxy server.")
+        print_green("\nYou have to :")
+        print("Enable the haproxy service on the haproxy server via systemctl command")
+        print("next, copy the file " + haproxy_file + " to the haproxy server (into /etc/haproxy/)")
+        print("Then restart the haproxy service on the haproxy server.")
+        print_green("Have a good day !")
     else:
         print("Wrong answer. Exiting...")
 
 def file_available(filename):
     if not (os.path.isfile(filename)):
-        print("Error, the file : " + filename + " is missing.")
+        print_red("Error, the file : " + filename + " is missing.")
         print("Check the path and the filename and try again")
         exit(1)
+    else:
+        print_green(filename + " found - OK")
 
 def main():
     # CONSTANT
@@ -93,7 +98,7 @@ def main():
     S3_HTTPS_PARAMETERS = ":443 check check-ssl verify none inter 5s rise 1 fall 2"
     ADMIN_HTTPS_PARAMETERS = ":19443 check check-ssl verify none inter 5s rise 1 fall 2"
     IAM_HTTP_PARAMETERS = ":16080 check inter 5s rise 1 fall 2"
-    IAM_HTTPS_PARAMETERS = ":16443 check check-ssl verify none inter 5s rise 1 fall 2"
+    IAM_HTTPS_PARAMETERS = ":16443 check inter 5s rise 1 fall 2"
     # for options in the command line
     DEFAULT_BACKUP = "nobackupatall"
     DEFAULT_MAILSERVER = "nomailserver"
@@ -121,6 +126,7 @@ def main():
     iam_endpoint = ""
     iam_http_list = []
     iam_https_list = []
+    config_path = ""
     #    backup_parameter = ""
     use_backup_option = False
     mailserver = []
@@ -139,6 +145,9 @@ def main():
     parser.add_argument('-c', '--common',
                         help="indicate the common.csv file, default = common.csv",
                         default=common_file)
+    parser.add_argument('-f', '--folder',
+                        help="indicate the folder including all config files, default = local folder",
+                        default=config_path)
     parser.add_argument('-bs3', '--backups3',
                         help="indicate the DC in backup/stand-by mode for s3, default=none",
                         default=DEFAULT_BACKUP)
@@ -152,9 +161,7 @@ def main():
                         help="indicate the recipient, default = root@localhost",
                         default='root@localhost')
     args = parser.parse_args()
- #   survey_file = args.survey
- #   install_config_file = args.install
- #   common_file = args.common
+
     # Define if we are using the "backup" parameter
     if args.backups3 != DEFAULT_BACKUP:
         use_backup_option = True
@@ -181,19 +188,27 @@ def main():
             for line in filein:
                 if "cloudianInstall.sh" in line:
                     install_path = line.strip().split(':')[4].split(',')[0].split('\"')[1].split('cloudianInstall.sh')[0]
-                    print_green("We are considering the following path as the current path for the cloudian installation : " + install_path)
+                    print("We are considering the following path as the current path for the cloudian installation : " + install_path + "\n")
                     survey_file = install_path + survey_file
                     install_config_file = install_path + install_config_file
                 if "configdir" in line:
                     common_path = line.strip().split(':')[3].split(',')[0].split('\"')[1]
                     common_file = common_path + common_extra_path + common_file
-                    print_green("Common config path found too.")
+                    # common file will be checked later ... file_available(common_file)
     else:
-        print_green("We are considering this host is NOT the Cloudian puppet master")
+        print_green("We are considering this host is NOT the Cloudian puppet master \n")
         # if there is no servicemap file, then the script will keep the defaults or options
-        survey_file = args.survey
-        install_config_file = args.install
-        common_file = args.common
+        # looking for the config files in the folder specified if there is...
+        if args.folder != "":
+            print("Trying to find all the config files needed in : " + args.folder +"/")
+            # force '/' at the end of the path
+            survey_file = args.folder + "/" + args.survey
+            install_config_file = args.folder + "/" + args.install
+            common_file = args.folder + "/" + args.common
+        else:
+            survey_file = args.survey
+            install_config_file = args.install
+            common_file = args.common
 
     # 2nd - Check if the three required files exist on the host
     file_available(survey_file)
@@ -241,9 +256,17 @@ def main():
 
     # Test if IAM domain is present (not the case for 7.0 or 7.1 config files)
     if not iam_endpoint:
-        print_green(" *** IAM Endpoint not found. Looks like it is an older version : HS 7.0.x or 7.1.x *** ")
+        print_green("\n *** IAM Endpoint not found. Looks like it is an older version : HS 7.0.x or 7.1.x *** ")
         iam_endpoint = "iam.not-yet-configured"
-        print("Your HAProxy config file will use a temporary iam domain instead like : " + iam_endpoint)
+        print("We prepare your HAProxy config file to use IAM with a temporary iam domain instead like : " + iam_endpoint)
+        print("In the future, replace the " + iam_endpoint + " with your IAM EndPoint value.")
+        print("Please, comment the IAM lines (with a #) in the config file if you don't want to see the warning lines in the STATs page")
+    elif iam_endpoint == admin_endpoint:
+        print_red("\n *** Warning, your IAM Endpoint has the same value compared to the AdminAPI Endpoint ***")
+        print("IAM Endpoint = ") + iam_endpoint
+        print("API EndPoint = ") + admin_endpoint
+        print("This might not work well.")
+        print("Please, adjust accordingly or comment (with a #) the IAM lines in the HAProxy config file.")
 
     # Retrieve the AdminAPI password
     # source : file "common.csv"
