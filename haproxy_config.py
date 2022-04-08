@@ -1,16 +1,19 @@
 #!/usr/bin/python
 #
 # haproxy_build_config python script
-# TODO :SQS ports (SQS is disabled by default => wait for next release)
-#       work on a wizard instead parameters in command line or website (needed ?? / pwd security ?)
+# TODO :SQS ports (SQS is disabled by default => wait for next HS release)
 #       Think on HSH feature --> Sig file ?
+#       for ubuntu OS for example : use an account different than root + sudo cmd
 # tuning : nbproc (avoid), nbthread (auto-tuned), cpu-map (avoid)
 #
-# Peter Long / v=1.1 / March 2021
-# compatibility with 7.2.4 (IAM HTTPS)
+# Peter Long / v=1.2 / April 2022
+# Config. for PROXY Protocol updated if it is enabled on Cloudian
+# Compatibility with 7.4 (IAM HTTP/HTTPS layer 7)
 # IAM EndPoint warning if it is still based on AdminAPI Endpoint
 # Add --folder command line option to specify a folder instead of all config files needed
-# minor changes for stats page
+# minor changes for stats page (security/default password)
+# force TLS 1.2 minimum
+# use maxconn per server line instead of global parameter => adjust it if needed
 
 # I can't use python methods or modules which are not installed on a HyperStore node
 import argparse
@@ -87,18 +90,19 @@ def file_available(filename):
         print("Check the path and the filename and try again")
         exit(1)
     else:
-        print_green(filename + " found - OK")
+        print_green(filename + " FOUND - OK")
 
 def main():
     # CONSTANT
     # to build the list of nodes for each TCP service
     HEADER = "    server "
-    CMC_HTTPS_PARAMETERS = ":8443 check check-ssl verify none inter 5s rise 1 fall 2"
-    S3_HTTP_PARAMETERS = ":80 check inter 5s rise 1 fall 2"
-    S3_HTTPS_PARAMETERS = ":443 check check-ssl verify none inter 5s rise 1 fall 2"
-    ADMIN_HTTPS_PARAMETERS = ":19443 check check-ssl verify none inter 5s rise 1 fall 2"
-    IAM_HTTP_PARAMETERS = ":16080 check inter 5s rise 1 fall 2"
-    IAM_HTTPS_PARAMETERS = ":16443 check inter 5s rise 1 fall 2"
+    CMC_HTTPS_PARAMETERS = ":8443 check check-ssl verify none inter 5s rise 1 fall 2 slowstart 5000 maxconn 100"
+    S3_HTTP_PARAMETERS = ":80 check inter 5s rise 1 fall 2 slowstart 5000 maxconn 100"
+    S3_HTTPS_PARAMETERS = ":443 check check-ssl verify none inter 5s rise 1 fall 2 slowstart 5000 maxconn 100"
+    ADMIN_HTTPS_PARAMETERS = ":19443 check check-ssl verify none inter 5s rise 1 fall 2 slowstart 5000 maxconn 100"
+    IAM_HTTP_PARAMETERS = ":16080 check inter 5s rise 1 fall 2 slowstart 5000 maxconn 100"
+    IAM_HTTPS_PARAMETERS = ":16443 check inter 5s rise 1 fall 2 slowstart 5000 maxconn 100"
+    IAM_HEALTHCHECK = "    option httpchk\n    http-check send meth HEAD uri /.healthCheck\n    http-check expect status 200"
     # for options in the command line
     DEFAULT_BACKUP = "nobackupatall"
     DEFAULT_MAILSERVER = "nomailserver"
@@ -114,6 +118,7 @@ def main():
     haproxy_file = "haproxy.cfg"
     adminapi_password = "public"
     adminapi_user = "sysadmin"
+    hyperstore_version = "0"    # 0 means no version
     # Force empty value
     cmc_endpoint = ""
     cmc_https_list = []
@@ -196,7 +201,7 @@ def main():
                     common_file = common_path + common_extra_path + common_file
                     # common file will be checked later ... file_available(common_file)
     else:
-        print_green("We are considering this host is NOT the Cloudian puppet master \n")
+        print_red("We are considering this host is NOT the Cloudian puppet master \n")
         # if there is no servicemap file, then the script will keep the defaults or options
         # looking for the config files in the folder specified if there is...
         if args.folder != "":
@@ -214,6 +219,39 @@ def main():
     file_available(survey_file)
     file_available(install_config_file)
     file_available(common_file)
+
+    # Retrieve the AdminAPI password and Check if we have to use the Proxy_Protocol for S3
+    # Retrieve the HyperStore version too
+    # source : file "common.csv"
+    with open(common_file, "r") as filein:
+        for line in filein:
+            if "release_version," in line:
+                hyperstore_version = line.strip().split(',')[1]
+                print_green("\nHyperStore release detected : " + hyperstore_version)
+            if "admin_auth_pass," in line:
+                adminapi_password = line.strip().split(',')[2].split('\"')[0]
+            if "admin_auth_user," in line:
+                adminapi_user = line.strip().split(',')[1]
+            if "s3_proxy_protocol_enabled,true" in line:
+                print_green("\nProxy Protocol ENABLED - the HAProxy config will reflect that\n")
+                S3_HTTP_PARAMETERS = S3_HTTP_PARAMETERS.replace(":80 check", ":81 check send-proxy")
+                S3_HTTPS_PARAMETERS = S3_HTTPS_PARAMETERS.replace(":443 check", ":4431 check send-proxy")
+
+    # Encode the login : password to base64 in any case (default parameters)
+    # as reminder : # echo -n "user:passwd" | base64
+    admin_auth = adminapi_user + ":" + adminapi_password
+    admin_auth = base64.b64encode(admin_auth.encode("utf-8"))     # compatibility with Python 3.x str/bytes
+    admin_auth = "'Basic " + admin_auth.decode() + "'"          # compatibility with Python 3.x str/bytes
+
+    # Add IAM healthCheck if the HS version is >= 7.4
+    # will remove this after the transition to 7.4 and more
+    if int(hyperstore_version.split('.')[0]) == 7:
+        if int(hyperstore_version.split('.')[1]) < 4:
+            print_red("Notice : using legacy layer 4 HealthCheck for IAM Service based on the HS version detected.")
+        else :
+            iam_http_list.append(IAM_HEALTHCHECK)
+            iam_https_list.append(IAM_HEALTHCHECK)
+            IAM_HTTPS_PARAMETERS = IAM_HTTPS_PARAMETERS.replace(":16443 check",":16443 check check-ssl verify none")
 
     # Retrieve list of nodes + IPs and build lists for each TCP service
     # source : file "survey.csv"
@@ -267,20 +305,6 @@ def main():
         print("API EndPoint = ") + admin_endpoint
         print("This might not work well.")
         print("Please, adjust accordingly or comment (with a #) the IAM lines in the HAProxy config file.")
-
-    # Retrieve the AdminAPI password
-    # source : file "common.csv"
-    with open(common_file, "r") as filein:
-        for line in filein:
-            if "admin_auth_pass," in line:
-                adminapi_password = line.strip().split(',')[2].split('\"')[0]
-            if "admin_auth_user," in line:
-                adminapi_user = line.strip().split(',')[1]
-
-    # Encode the login : password to base64 in any case (default parameters)
-    admin_auth = adminapi_user + ":" + adminapi_password
-    admin_auth=base64.b64encode(admin_auth.encode("utf-8"))     # compatibility with Python 3.x str/bytes
-    admin_auth = "'Basic " + admin_auth.decode() + "'"          # compatibility with Python 3.x str/bytes
 
     # Create the HA proxy config file
     # destination : file "haproxy.cfg" based on the template "haproxy_template.cfg"

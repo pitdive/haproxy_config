@@ -12,27 +12,40 @@ Use this tool with precautions (review the config file created manually for a do
 Cloudian can NOT be involved for any bugs or misconfiguration due to this tool. So you are using it at your own risks and be aware of the restrictions.
 
 # Features
-Compatible with HyperStore 7.1 & 7.2 (IAM add-on + compatibility with 7.2.4) --> TCP healthcheck only / no Layer7  
-Automatic discovery of the staging directory 
+Compatible with HyperStore 7.1, 7.2 (IAM TCP healthcheck only), 7.3 and **7.4**
+Automatic discovery of the **staging directory**
 Automatic discovery of the AdminAPI randomly generated password (HS 7.2.2.x and higher)
+Automatic discovery and config. adjustement for **Proxy Protocol**
 Option : push the HAProxy config. directly to the HAProxy host
 Automatic refresh of the stats page + legends/pop-ups (HTTP code responses from 1xx to 5xx, ipv4 info, balance method, etc)
 Email notification
 Backup DC
+Force **TLS > 1.2**
+**MaxConn** parameter per node
 
 # Tested On
 ### Avoid HAProxy < 2.0 due to deprecated parameters and this tool uses now the new parameters ###
+### Consider to use HAProxy >= 2.2, prefer the LTS support on 2.2 or 2.4 ###
 Tested on :
-       Cloudian nodes : CentOS 7.5-7.7
-       HyperStore : 7.1.x (4, 5 and 7) & 7.2.x (up to 7.2.4)
+       Cloudian nodes : CentOS 7.5-7.9
+       HyperStore : 7.1.x (4, 5 and 7) & 7.2.x (up to 7.2.4) & 7.3.2 & 7.4
        Python : 2.7.x - 3.9 
-       Tested on HAProxy : 2.0 to 2.2 (LTS)
-              last test on Debian --> HA-Proxy version 2.2.9-1 2021/02/06 - https://haproxy.org/
-              Status: long-term supported branch - will stop receiving fixes around Q2 2025.
-              Known bugs: http://www.haproxy.org/bugs/bugs-2.2.9.html
-              Running on: Linux 5.10.0-3-amd64 #1 SMP Debian 5.10.13-1 (2021-02-06) x86_64
-       Cloudian clusters : from 1 to several nodes for PoC or Production environment (tested on 12 nodes cluster)
+       Tested on HAProxy : 2.2 to 2.4 (LTS)
+              last test on Debian --> HAProxy version 2.4.15-1 2022/03/14 - https://haproxy.org/
+              Status: long-term supported branch - will stop receiving fixes around Q2 2026.
+              Known bugs: http://www.haproxy.org/bugs/bugs-2.4.15.html
+              Running on: Linux 5.16.0-5-amd64 #1 SMP PREEMPT Debian 5.16.14-1 (2022-03-15) x86_64
+              **Options : USE_PCRE2=1 USE_PCRE2_JIT=1 USE_OPENSSL=1 USE_LUA=1 USE_SLZ=1 USE_SYSTEMD=1 USE_OT=1 USE_PROMEX=1**
+              **multi-threading support**
+              **Running on OpenSSL version : OpenSSL 1.1.1n  15 Mar 2022**
+              **OpenSSL library supports : TLSv1.0 TLSv1.1 TLSv1.2 TLSv1.3**
+       Cloudian clusters : from 1 to several nodes for PoC or Production environment (tested on 12 nodes cluster/multi-DC)
        Remote workstation : Should work on all OS which can support Python. Tested on my Debian with Python 2.7.x and 3.9 (regular testing)
+
+# HAProxy upgrade recommendations
+Before upgrading, on the HAProxy server, you should have a copy of the config file : /etc/haproxy/haproxy.cfg
+It's recommended to take a snapshot of the VM if HAProxy is based on a virtual machine     
+
 
 # Deployment
 Download only the files below and put them into a directory of your choice (ex : /root/haproxy_config/) :
@@ -87,24 +100,28 @@ Then, with the new version of the tool, we can discover automatically the Cloudi
 **Common and standard uses from the Puppet Master Host**
 **You can run a single line without any option and push the config on the HAProxy host directly (most standard use for 1 or more DCs) :**
     
-    [root@cloudlab01 ~]# python haproxy_config.py 
-       haproxy_template.cfg found - OK
-       We are considering the following path as the current path for the cloudian installation : /opt/cloudian-staging/7.2.4/
-       /etc/cloudian-7.2.4-puppet/manifests/extdata/common.csv found - OK
-       /opt/cloudian-staging/7.2.4/survey.csv found - OK
-       /opt/cloudian-staging/7.2.4/CloudianInstallConfiguration.txt found - OK
-       /etc/cloudian-7.2.4-puppet/manifests/extdata/common.csv found - OK
+       [root@cloudlab01 ~]# python haproxy_config.py 
+       haproxy_template.cfg FOUND - OK
+       We are considering the following path as the current path for the cloudian installation : /opt/cloudian-staging/7.4/
+       
+       /opt/cloudian-staging/7.4/survey.csv FOUND - OK
+       /opt/cloudian-staging/7.4/CloudianInstallConfiguration.txt FOUND - OK
+       /etc/cloudian-7.4-puppet/manifests/extdata/common.csv FOUND - OK
+       
+       HyperStore release detected : 7.4
+       
+       Proxy Protocol ENABLED - the HAProxy config will reflect that
+       
        
        Your HAProxy config file is : haproxy.cfg and it is in the local/current directory
        
        You need to have the root access to push this config.
        Do you want to push & run this config file to your haproxy server ? (yes / no) : yes
-       Please, enter the IP address or the hostname of your haproxy server : cloudlab-haproxy
+       Please, enter the IP address or the hostname of your haproxy server : 192.168.110.200
        Enter the root password for the connexion ...
-       Password: ***********
-       Trying to connect to the host : cloudlab-haproxy with the root password ... and then checking some parameters for you ...
-       Warning: Permanently added 'cloudlab-haproxy' (ECDSA) to the list of known hosts.
-       HA-Proxy version 2.2.9-1 2021/02/06 - https://haproxy.org/
+       Password:
+       Trying to connect to the host : 192.168.110.200 with the root password ... and then checking some parameters for you ...
+       HAProxy version 2.4.4-1 2021/09/08 - https://haproxy.org/
        Enabling the haproxy service on the haproxy server...
        Synchronizing state of haproxy.service with SysV service script with /lib/systemd/systemd-sysv-install.
        Executing: /lib/systemd/systemd-sysv-install enable haproxy
@@ -114,27 +131,21 @@ Then, with the new version of the tool, we can discover automatically the Cloudi
        Checking status of haproxy service...
        ● haproxy.service - HAProxy Load Balancer
        Loaded: loaded (/lib/systemd/system/haproxy.service; enabled; vendor preset: enabled)
-       Active: active (running) since Fri 2021-03-05 11:43:08 CET; 196ms ago
+       Active: active (running) since Fri 2022-04-08 11:04:46 CEST; 517ms ago
        Docs: man:haproxy(1)
        file:/usr/share/doc/haproxy/configuration.txt.gz
-       Process: 686 ExecStartPre=/usr/sbin/haproxy -f $CONFIG -c -q $EXTRAOPTS (code=exited, status=0/SUCCESS)
-       Main PID: 688 (haproxy)
-       Tasks: 2 (limit: 1135)
-       Memory: 34.7M
+       Process: 621 ExecStartPre=/usr/sbin/haproxy -f $CONFIG -c -q $EXTRAOPTS (code=exited, status=0/SUCCESS)
+       Main PID: 623 (haproxy)
+       Tasks: 5 (limit: 2342)
+       Memory: 71.8M
        CGroup: /system.slice/haproxy.service
-       ├─688 /usr/sbin/haproxy -Ws -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -S /run/haproxy-master.sock
-       └─690 /usr/sbin/haproxy -Ws -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -S /run/haproxy-master.sock
+       ├─623 /usr/sbin/haproxy -Ws -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -S /run/haproxy-master.sock
+       └─625 /usr/sbin/haproxy -Ws -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -S /run/haproxy-master.sock
        
-       Mar 05 11:43:08 haproxy haproxy[688]: Proxy https.s3-cloudlab.demo.lab started.
-       Mar 05 11:43:08 haproxy haproxy[688]: Proxy https.s3-cloudlab.demo.lab started.
-       Mar 05 11:43:08 haproxy systemd[1]: Started HAProxy Load Balancer.
-       Mar 05 11:43:08 haproxy haproxy[688]: [NOTICE] 063/114308 (688) : New worker #1 (690) forked
-       Mar 05 11:43:08 haproxy haproxy[688]: Proxy s3-cloudlab-admin.demo.lab started.
-       Mar 05 11:43:08 haproxy haproxy[688]: Proxy s3-cloudlab-admin.demo.lab started.
-       Mar 05 11:43:08 haproxy haproxy[688]: Proxy s3-cloudlab-iam.demo.lab started.
-       Mar 05 11:43:08 haproxy haproxy[688]: Proxy s3-cloudlab-iam.demo.lab started.
-       Mar 05 11:43:08 haproxy haproxy[688]: Proxy https.s3-cloudlab-iam.demo.lab started.
-       Mar 05 11:43:08 haproxy haproxy[688]: Proxy https.s3-cloudlab-iam.demo.lab started.
+       Apr 08 11:04:46 cloudlab-haproxy-debian systemd[1]: Starting HAProxy Load Balancer...
+       Apr 08 11:04:46 cloudlab-haproxy-debian haproxy[623]: [NOTICE]   (623) : New worker #1 (625) forked
+       Apr 08 11:04:46 cloudlab-haproxy-debian systemd[1]: Started HAProxy Load Balancer.
+
 
 **Those lines are suggested as quick examples without config push**
 
@@ -237,14 +248,18 @@ Specifying all files in the command line :
 
 or using the new option "--folder" : 
 
-       plong@snoopy:~$ python haproxy_config.py --folder config_7.2.4_six_nodes
-       haproxy_template.cfg found - OK
+       ** 7.2.4 example **
+       $ python haproxy_config.py --folder ./config_7.2.4_six_nodes/
+       haproxy_template.cfg FOUND - OK
        We are considering this host is NOT the Cloudian puppet master
        
-       Trying to find all the config files needed in : config_7.2.4_six_nodes/
-       config_7.2.4_six_nodes/survey.csv found - OK
-       config_7.2.4_six_nodes/CloudianInstallConfiguration.txt found - OK
-       config_7.2.4_six_nodes/common.csv found - OK
+       Trying to find all the config files needed in : ./config_7.2.4_six_nodes//
+       ./config_7.2.4_six_nodes//survey.csv FOUND - OK
+       ./config_7.2.4_six_nodes//CloudianInstallConfiguration.txt FOUND - OK
+       ./config_7.2.4_six_nodes//common.csv FOUND - OK
+       
+       HyperStore release detected : 7.2.4
+       Notice : using legacy layer 4 HealthCheck for IAM Service based on the HS version detected.
        
        Your HAProxy config file is : haproxy.cfg and it is in the local/current directory
        
@@ -256,6 +271,35 @@ or using the new option "--folder" :
        next, copy the file haproxy.cfg to the haproxy server (into /etc/haproxy/)
        Then restart the haproxy service on the haproxy server.
        Have a good day !
+
+
+       ** 7.3.2 example **
+       $ python haproxy_config.py --folder ./config_7.3.2_two_nodes
+       haproxy_template.cfg FOUND - OK
+       We are considering this host is NOT the Cloudian puppet master
+       
+       Trying to find all the config files needed in : ./config_7.3.2_two_nodes/
+       ./config_7.3.2_two_nodes/survey.csv FOUND - OK
+       ./config_7.3.2_two_nodes/CloudianInstallConfiguration.txt FOUND - OK
+       ./config_7.3.2_two_nodes/common.csv FOUND - OK
+       
+       HyperStore release detected : 7.3.2
+       
+       Proxy Protocol ENABLED - the HAProxy config will reflect that
+       
+       Notice : using legacy layer 4 HealthCheck for IAM Service based on the HS version detected.
+       
+       Your HAProxy config file is : haproxy.cfg and it is in the local/current directory
+       
+       You need to have the root access to push this config.
+       Do you want to push & run this config file to your haproxy server ? (yes / no) : no
+       
+       You have to :
+       Enable the haproxy service on the haproxy server via systemctl command
+       next, copy the file haproxy.cfg to the haproxy server (into /etc/haproxy/)
+       Then restart the haproxy service on the haproxy server.
+       Have a good day !
+
 
 **For two DCs or more without any preferences. you can use it with the same way.**
        **=> load-balancing will occur on all nodes in the same manner.**
@@ -365,7 +409,7 @@ Go to the HAProxy server by using SSH (or a console), then restart the haproxy s
        Mar 05 13:12:57 haproxy systemd[1]: Started HAProxy Load Balancer.
 
 # Version
-1.1
+1.2
 
 # Bugs & Suggestions
 Any bugs or suggestions, please contact the author directly.
