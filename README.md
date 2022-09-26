@@ -12,12 +12,14 @@ Use this tool with precautions (review the config file created manually for a do
 Cloudian can NOT be involved for any bugs or misconfiguration due to this tool. So you are using it at your own risks and be aware of the restrictions.
 
 # Features
-Compatible with HyperStore 7.1, 7.2 (IAM TCP healthcheck only), 7.3 and **7.4**
+Compatible with HyperStore 7.1, 7.2 (IAM TCP healthcheck only), 7.3, **7.4.x and 7.5**
+**HyperBalance configuration too**
 Automatic discovery of the **staging directory**
 Automatic discovery of the AdminAPI randomly generated password (HS 7.2.2.x and higher)
 Automatic discovery and config. adjustement for **Proxy Protocol**
 Option : push the HAProxy config. directly to the HAProxy host
 Automatic refresh of the stats page + legends/pop-ups (HTTP code responses from 1xx to 5xx, ipv4 info, balance method, etc)
+Automatic HealthCheck choice => layer 4 or 7 depending on the HyperStore release (IAM)
 Email notification
 Backup DC
 Force **TLS > 1.2**
@@ -28,7 +30,7 @@ Force **TLS > 1.2**
 ### Consider to use HAProxy >= 2.2, prefer the LTS support on 2.2 or 2.4 ###
 Tested on :
        Cloudian nodes : CentOS 7.5-7.9
-       HyperStore : 7.1.x (4, 5 and 7) & 7.2.x (up to 7.2.4) & 7.3.2 & 7.4
+       HyperStore : 7.1.x (less&less compatibility tests due to the EOL) & 7.2.x & 7.3.x & 7.4.x & 7.5
        Python : 2.7.x - 3.9 
        Tested on HAProxy : 2.2 to 2.4 (LTS)
               last test on Debian --> HAProxy version 2.4.15-1 2022/03/14 - https://haproxy.org/
@@ -67,84 +69,101 @@ Then, with the new version of the tool, we can discover automatically the Cloudi
 
 **if you want to have the command usage, just run the script with --help option**
 
-    [root@cloudlab01 ~]# python haproxy_config.py  --help
-    usage: haproxy_config.py [-h] [-s SURVEY] [-i INSTALL] [-c COMMON]
-                             [-bs3 BACKUPS3] [-ms MAILSERVER] [-mf MAILFROM]
-                             [-mt MAILTO]
-    
-    parameters for the script
-    
-    optional arguments:
-      -h, --help            show this help message and exit
-      -s SURVEY, --survey SURVEY
-                            indicate the survey file, default = survey.csv
-      -i INSTALL, --install INSTALL
-                            indicate the installation file, default =
-                            CloudianInstallConfiguration.txt
-      -c COMMON, --common COMMON
-                            indicate the common.csv file, default = common.csv
-      -f FOLDER, --folder FOLDER
-                            indicate the folder including all config files,
-                            default = local folder
-      -bs3 BACKUPS3, --backups3 BACKUPS3
-                            indicate the DC in backup/stand-by mode for s3,
-                            default=none
-      -ms MAILSERVER, --mailserver MAILSERVER
-                            mail server name or @IP for alerts
-      -mf MAILFROM, --mailfrom MAILFROM
-                            indicate the sender, default = haproxy@localhost
-      -mt MAILTO, --mailto MAILTO
-                            indicate the recipient, default = root@localhost
+    [root@cloudlab01 lb-tools]# python ./haproxy_config.py --help
+       usage: haproxy_config.py [-h] [-s SURVEY] [-i INSTALL] [-c COMMON] [-f FOLDER]
+       [-hb] [-hbr] [-bs3 BACKUPS3] [-ms MAILSERVER] [-mf MAILFROM] [-mt MAILTO]
+       
+       optional arguments:
+       -h, --help                                show this help message and exit
+       -s SURVEY, --survey SURVEY                indicate the survey file, default = survey.csv
+       -i INSTALL, --install INSTALL             indicate the installation file, default = CloudianInstallConfiguration.txt
+       -c COMMON, --common COMMON                indicate the common.csv file, default = common.csv
+       -f FOLDER, --folder FOLDER                indicate the folder including all config files, default = local folder
+       -hb, --hyperbalance                       specify you want to create a HyperBalance configuration
+       -hbr, --hbrevert                          revert the hyperbalance config applied 
+       -bs3 BACKUPS3, --backups3 BACKUPS3        indicate the DC in backup/stand-by mode for s3, default=none
+       -ms MAILSERVER, --mailserver MAILSERVER   mail server name or @IP for alerts
+       -mf MAILFROM, --mailfrom MAILFROM         indicate the sender, default = haproxy@localhost
+       -mt MAILTO, --mailto MAILTO               indicate the recipient, default = root@localhost
 
 
 **Common and standard uses from the Puppet Master Host**
 **You can run a single line without any option and push the config on the HAProxy host directly (most standard use for 1 or more DCs) :**
-    
-       [root@cloudlab01 ~]# python haproxy_config.py 
-       haproxy_template.cfg FOUND - OK
-       We are considering the following path as the current path for the cloudian installation : /opt/cloudian-staging/7.4/
+
+       [root@cloudlab01 lb-tools]# python ./haproxy_config.py
+       haproxy_config_template.cfg FOUND - OK
+       We are considering the following path as the current path for the cloudian installation : /opt/cloudian-staging/7.4.2/
        
-       /opt/cloudian-staging/7.4/survey.csv FOUND - OK
-       /opt/cloudian-staging/7.4/CloudianInstallConfiguration.txt FOUND - OK
-       /etc/cloudian-7.4-puppet/manifests/extdata/common.csv FOUND - OK
+       /opt/cloudian-staging/7.4.2/survey.csv FOUND - OK
+       /opt/cloudian-staging/7.4.2/CloudianInstallConfiguration.txt FOUND - OK
+       /etc/cloudian-7.4.2-puppet/manifests/extdata/common.csv FOUND - OK
        
-       HyperStore release detected : 7.4
-       
-       Proxy Protocol ENABLED - the HAProxy config will reflect that
-       
+       HyperStore release detected : 7.4.2
        
        Your HAProxy config file is : haproxy.cfg and it is in the local/current directory
        
        You need to have the root access to push this config.
        Do you want to push & run this config file to your haproxy server ? (yes / no) : yes
-       Please, enter the IP address or the hostname of your haproxy server : 192.168.110.200
-       Enter the root password for the connexion ...
+       Please, enter the IP address of your haproxy server : 192.168.110.200
+       Enter the root password for the connection ...
        Password:
        Trying to connect to the host : 192.168.110.200 with the root password ... and then checking some parameters for you ...
+       processing, please wait...
+       Warning: Permanently added '192.168.110.200' (ECDSA) to the list of known hosts.
        HAProxy version 2.4.4-1 2021/09/08 - https://haproxy.org/
        Enabling the haproxy service on the haproxy server...
+       processing, please wait...
        Synchronizing state of haproxy.service with SysV service script with /lib/systemd/systemd-sysv-install.
        Executing: /lib/systemd/systemd-sysv-install enable haproxy
        Backing up the old config on the haproxy server...
+       processing, please wait...
        Copying config file to haproxy server...
+       processing, please wait...
        Restarting haproxy service on the haproxy server...
+       processing, please wait...
        Checking status of haproxy service...
+       processing, please wait...
        ● haproxy.service - HAProxy Load Balancer
        Loaded: loaded (/lib/systemd/system/haproxy.service; enabled; vendor preset: enabled)
-       Active: active (running) since Fri 2022-04-08 11:04:46 CEST; 517ms ago
+       Active: active (running) since Mon 2022-09-26 10:24:22 CEST; 215ms ago
        Docs: man:haproxy(1)
        file:/usr/share/doc/haproxy/configuration.txt.gz
-       Process: 621 ExecStartPre=/usr/sbin/haproxy -f $CONFIG -c -q $EXTRAOPTS (code=exited, status=0/SUCCESS)
-       Main PID: 623 (haproxy)
+       Process: 503 ExecStartPre=/usr/sbin/haproxy -f $CONFIG -c -q $EXTRAOPTS (code=exited, status=0/SUCCESS)
+       Main PID: 505 (haproxy)
        Tasks: 5 (limit: 2342)
-       Memory: 71.8M
+       Memory: 71.7M
        CGroup: /system.slice/haproxy.service
-       ├─623 /usr/sbin/haproxy -Ws -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -S /run/haproxy-master.sock
-       └─625 /usr/sbin/haproxy -Ws -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -S /run/haproxy-master.sock
+       ├─505 /usr/sbin/haproxy -Ws -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -S /run/haproxy-master.sock
+       └─507 /usr/sbin/haproxy -Ws -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -S /run/haproxy-master.sock
        
-       Apr 08 11:04:46 cloudlab-haproxy-debian systemd[1]: Starting HAProxy Load Balancer...
-       Apr 08 11:04:46 cloudlab-haproxy-debian haproxy[623]: [NOTICE]   (623) : New worker #1 (625) forked
-       Apr 08 11:04:46 cloudlab-haproxy-debian systemd[1]: Started HAProxy Load Balancer.
+       Sep 26 10:24:22 cloudlab-haproxy-debian systemd[1]: Starting HAProxy Load Balancer...
+       Sep 26 10:24:22 cloudlab-haproxy-debian haproxy[505]: [NOTICE]   (505) : New worker #1 (507) forked
+       Sep 26 10:24:22 cloudlab-haproxy-debian systemd[1]: Started HAProxy Load Balancer.
+       [root@cloudlab01 lb-tools]#
+
+**Full Example of HyperBalance configuration**
+
+       [root@cloudlab01]# python ./haproxy_config.py --hyperbalance
+       You requested a configuration for a HyperBalance appliance
+       
+       We are considering the following path as the current path for the cloudian installation : /opt/cloudian-staging/7.4.2/
+       
+       /opt/cloudian-staging/7.4.2/survey.csv FOUND - OK
+       /opt/cloudian-staging/7.4.2/CloudianInstallConfiguration.txt FOUND - OK
+       /etc/cloudian-7.4.2-puppet/manifests/extdata/common.csv FOUND - OK
+       
+       HyperStore release detected : 7.4.2
+       You need to have the root access.
+       Please, enter the IP address of your HyperBalance appliance : 192.168.110.199
+       Enter the root password for the connection ...
+       Password:
+       Trying to connect to the host : 192.168.110.199 with the root password ... and then checking some parameters for you ...
+       processing, please wait...
+       OK. HyperBalance is reachable...
+       
+       Please, enter the IP address for the VIP (floating IP) : 192.168.110.200
+       processing, please wait...
+       HyperBalance configuration is applied.
 
 
 **Those lines are suggested as quick examples without config push**
@@ -409,7 +428,7 @@ Go to the HAProxy server by using SSH (or a console), then restart the haproxy s
        Mar 05 13:12:57 haproxy systemd[1]: Started HAProxy Load Balancer.
 
 # Version
-1.2
+1.3
 
 # Bugs & Suggestions
 Any bugs or suggestions, please contact the author directly.
