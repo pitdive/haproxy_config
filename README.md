@@ -1,9 +1,10 @@
 # HAproxy Config
-Script to build a HAProxy config file based on a Cloudian cluster config.
+Script to build a HAProxy config file (+ HyperBalance) based on a Cloudian cluster config.
 
 # Description
-The goal is to build a HAPROXY configuration file (haproxy.cfg) based on the information already in place for the Cloudian cluster.
+The goal is to build a HAPROXY configuration file (haproxy.cfg) or a HyperBalance config based on the information already in place for the Cloudian cluster.
 The result is a config file for a dedicated load-balancer (1 host or 1 VM) to Cloudian cluster.
+Next, you decide to push or not to the load-balancer.
 
 This is a simple way to avoid misconfiguration for HAProxy config file (typo error, etc.) during installation for PoC and test (SE tool or tool provided to a customer) or multi-automated-installation via Vagrant
 
@@ -12,37 +13,46 @@ Use this tool with precautions (review the config file created manually for a do
 Cloudian can NOT be involved for any bugs or misconfiguration due to this tool. So you are using it at your own risks and be aware of the restrictions.
 
 # Features
-Compatible with HyperStore 7.1, 7.2 (IAM TCP healthcheck only), 7.3, **7.4.x and 7.5**
-**HyperBalance configuration too**
-Automatic discovery of the **staging directory**
-Automatic discovery of the AdminAPI randomly generated password (HS 7.2.2.x and higher)
-Automatic discovery and config. adjustement for **Proxy Protocol**
-Option : push the HAProxy config. directly to the HAProxy host
-Automatic refresh of the stats page + legends/pop-ups (HTTP code responses from 1xx to 5xx, ipv4 info, balance method, etc)
-Automatic HealthCheck choice => layer 4 or 7 depending on the HyperStore release (IAM)
-Email notification
-Backup DC
-Force **TLS > 1.2**
-**MaxConn** parameter per node
+* Compatible with HyperStore 7.1, 7.2 (IAM TCP healthcheck only), 7.3, **7.4.x and 7.5**
+* **Support of HyperBalance configuration** and HyperBalance How-To doc (HS > 7.4 or higher)
+* Automatic discovery of the **staging directory**
+* Automatic discovery of the AdminAPI randomly generated password (HS 7.2.2.x and higher)
+* Automatic discovery and config. adjustement for **Proxy Protocol**
+* Option : push the HAProxy config. directly to the HAProxy host
+* Automatic refresh of the stats page + legends/pop-ups (HTTP code responses from 1xx to 5xx, ipv4 info, balance method, etc)
+* Automatic HealthCheck choice => layer 4 or 7 depending on the HyperStore release (IAM)
+* Email notification
+* Backup DC
+* Force **TLS > 1.2**
+* **MaxConn** parameter per node
+
+>> **Notice : some parameters are not well interpreted on HyperBalance during my tests on the LB.org OVA. A new release of the OVA should be available with the patch included.**
 
 # Tested On
-### Avoid HAProxy < 2.0 due to deprecated parameters and this tool uses now the new parameters ###
-### Consider to use HAProxy >= 2.2, prefer the LTS support on 2.2 or 2.4 ###
+
+> **Avoid HAProxy < 2.0 due to deprecated parameters and this tool uses now the new parameters
+Consider to use HAProxy >= 2.2, prefer the LTS support on 2.2 or 2.4 and higher**
+
 Tested on :
-       Cloudian nodes : CentOS 7.5-7.9
-       HyperStore : 7.1.x (less&less compatibility tests due to the EOL) & 7.2.x & 7.3.x & 7.4.x & 7.5
-       Python : 2.7.x - 3.9 
-       Tested on HAProxy : 2.2 to 2.4 (LTS)
-              last test on Debian --> HAProxy version 2.4.15-1 2022/03/14 - https://haproxy.org/
-              Status: long-term supported branch - will stop receiving fixes around Q2 2026.
-              Known bugs: http://www.haproxy.org/bugs/bugs-2.4.15.html
-              Running on: Linux 5.16.0-5-amd64 #1 SMP PREEMPT Debian 5.16.14-1 (2022-03-15) x86_64
-              **Options : USE_PCRE2=1 USE_PCRE2_JIT=1 USE_OPENSSL=1 USE_LUA=1 USE_SLZ=1 USE_SYSTEMD=1 USE_OT=1 USE_PROMEX=1**
-              **multi-threading support**
-              **Running on OpenSSL version : OpenSSL 1.1.1n  15 Mar 2022**
-              **OpenSSL library supports : TLSv1.0 TLSv1.1 TLSv1.2 TLSv1.3**
-       Cloudian clusters : from 1 to several nodes for PoC or Production environment (tested on 12 nodes cluster/multi-DC)
-       Remote workstation : Should work on all OS which can support Python. Tested on my Debian with Python 2.7.x and 3.9 (regular testing)
+* Cloudian nodes : CentOS 7.5-7.9
+* HyperStore : 7.1.x (less&less compatibility tests due to the EOL) & 7.2.x & 7.3.x & 7.4.x & 7.5
+* Python : 2.7.x - 3.9 
+
+Tested on HAProxy : 2.2 to 2.4 (LTS). Last test on Debian :
+	
+	HAProxy version 2.4.15-1 2022/03/14 - https://haproxy.org/
+	Status: long-term supported branch - will stop receiving fixes around Q2 2026.
+	Known bugs: http://www.haproxy.org/bugs/bugs-2.4.15.html
+	Running on: Linux 5.16.0-5-amd64 #1 SMP PREEMPT Debian 5.16.14-1 (2022-03-15) x86_64
+	Options : USE_PCRE2=1 USE_PCRE2_JIT=1 USE_OPENSSL=1 USE_LUA=1 USE_SLZ=1 USE_SYSTEMD=1 USE_OT=1 USE_PROMEX=1
+	multi-threading support
+	Running on OpenSSL version : OpenSSL 1.1.1n  15 Mar 2022
+	OpenSSL library supports : TLSv1.0 TLSv1.1 TLSv1.2 TLSv1.3
+
+Cloudian clusters : 
+
+*	from 1 to several nodes for PoC or Production environment (tested on 12 nodes cluster/multi-DC)
+*	Remote workstation : Should work on all OS which can support Python. Tested on my Debian with Python 2.7.x and 3.9 (regular testing)
 
 # HAProxy upgrade recommendations
 Before upgrading, on the HAProxy server, you should have a copy of the config file : /etc/haproxy/haproxy.cfg
@@ -50,17 +60,19 @@ It's recommended to take a snapshot of the VM if HAProxy is based on a virtual m
 
 
 # Deployment
-Download only the files below and put them into a directory of your choice (ex : /root/haproxy_config/) :
+Download only the files below and put them into a directory of your choice (ex : /root/lb-tools/) :
 
 	haproxy_config.py
-  	haproxy_template.cfg
+	haproxy_config_template.cfg
 
 You need to have also some files (from the Cloudian cluster / Puppet Master Host) if you execute this tool outside of the cloudian cluster :
-(notice : For 7.0 and 7.1 releases --> the "Staging Directory" is by default : /root/CloudianPackages for the standard deployment excluding any software upgrade).
-(notice : For 7.2 release --> the "Staging Directory" is by default : /opt/cloudian-staging/7.2 for the standard deployment excluding any software upgrade).
+
+>> Notice1 : For 7.0 and 7.1 releases --> the "Staging Directory" is by default : **/root/CloudianPackages** for the standard deployment excluding any software upgrade. <br />
+
+>> Notice2 : For 7.2 release (and higher) --> the "Staging Directory" is by default : **/opt/cloudian-staging/7.2** for the standard deployment excluding any software upgrade.
 
 	<Staging Directory>/survey.csv
-  	<Staging Directory>/CloudianInstallConfiguration.txt
+	<Staging Directory>/CloudianInstallConfiguration.txt
   	/etc/cloudian-<HS-version>-puppet/manifests/extdata/common.csv
 
 Then, with the new version of the tool, we can discover automatically the Cloudian staging directory if it is on the Puppet Master host.
@@ -142,6 +154,7 @@ Then, with the new version of the tool, we can discover automatically the Cloudi
        [root@cloudlab01 lb-tools]#
 
 **Full Example of HyperBalance configuration**
+>>This tool support HyperBalance config from HyperStore 7.4 at the minimum release level.
 
        [root@cloudlab01]# python ./haproxy_config.py --hyperbalance
        You requested a configuration for a HyperBalance appliance

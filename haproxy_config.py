@@ -2,7 +2,7 @@
 #
 # haproxy_build_config python script
 # TODO :SQS ports (SQS is disabled by default => wait for next HS release)
-#       Think on HSH feature --> Sig file ?
+#       Think on HSH feature --> Sig file ? --> not needed, doing LB config before enabling HSH
 #       for ubuntu OS for example : use an account different than root + sudo cmd
 # tuning : nbproc (avoid), nbthread (auto-tuned), cpu-map (avoid)
 #
@@ -441,9 +441,6 @@ def main():
         username, password, hostname = check_hb(lb_file, "root", password="", hostname="")
         vip = input("\nPlease, enter the IP address for the VIP (floating IP) : ")
         control_ip(vip)
-        # NONEEDED#result = ["--action add-floating-ip --ip " + vip]
-        # result.append(["--action add-vip --layer 7 --vip cloudian_CMC --ip " + vip + " --ports 8443 --mode tcp --persistence ip --check_type negotiate_https_head --check_request '/Cloudian/login.htm'"])
-        # result = ["--action add-vip --layer 7 --vip " + cmc_endpoint + " --ip " + vip + " --ports 8443 --mode tcp --persistence ip --check_type negotiate_https_head --check_request '/Cloudian/login.htm'"]
         result = [HEADER_HB_VIP + cmc_endpoint + "  --ip " + vip + CMC_HTTPS_HB_PARAMETERS]
         result.extend(cmc_https_list)
         result.append([HEADER_HB_VIP + s3_endpoint + "_HTTP" + " --ip " + vip + S3_HTTP_HB_PARAMETERS])
