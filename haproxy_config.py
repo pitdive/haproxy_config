@@ -2,19 +2,27 @@
 #
 # haproxy_build_config python script
 # TODO :SQS ports (SQS is disabled by default => wait for next HS release)
-#       Think on HSH feature --> Sig file ? --> not needed, doing LB config before enabling HSH
-#       for ubuntu OS for example : use an account different than root + sudo cmd
+#        multi-region => multi VIP ?
+#        for ubuntu OS for example : use an account different than root + sudo cmd
 # tuning : nbproc (avoid), nbthread (auto-tuned), cpu-map (avoid)
 #
-# Peter Long / v=1.3 / June 2022
+# Peter Long / v=1.4 / April 2023
 # Config. for PROXY Protocol updated if it is enabled on Cloudian
-# Compatibility with 7.4 (IAM HTTP/HTTPS layer 7) + 7.5
+# Compatibility with 7.4 (IAM HTTP/HTTPS layer 7) + 7.5.x
 # IAM EndPoint warning if it is still based on AdminAPI Endpoint
 # Add --folder command line option to specify a folder instead of all config files needed
 # minor changes for stats page (security/default password)
 # force TLS 1.2 minimum
 # use maxconn per server line instead of global parameter => adjust it if needed
-# Add LB.org/HyperBalance automatic configuration
+# Add LB.org/HyperBalance automatic configuration (8.6, 8.7 and 8.8.1)
+# Tuning for LB.org/HyperBalance : timeout_client & timeout_server for CMC VIP + OPTIONS
+# High Availability configuration for LB.org (primary / secondary)
+# Support of the Cloudian multi-region deployment
+# Look for customized service ports on the cluster
+# TO DO : need to configure the iam secure for haproxy ! (hyperbalance= done)
+# TO DO :   # The following node was removed on Wed Mar  8 19:57:51 IST 2023
+#           # gseblr,dc1-node4,10.3.27.24,dc2,Rack1,ens224
+#           ==> comment in the survey.csv file
 
 # I can't use python methods or modules which are not installed on a HyperStore node
 import argparse
@@ -23,6 +31,7 @@ import os
 import base64   # compatibility with Python 3.x
 import re
 from string import Template
+import time
 
 
 # I am using python2 compatible commands (hyperstore uses python2) instead python3 commands.
@@ -63,7 +72,7 @@ def push_config(lb_file):
         username = "root"
         hostname = input("Please, enter the IP address of your haproxy server : ")
         control_ip(hostname)
-        print_red("Enter the " + username + " password for the connection ... ")
+        print_green("Enter the " + username + " password for the connection ... ")
         password = getpass.getpass()
         # Remote actions on the haproxy server
         print_green("Trying to connect to the host : " + hostname + " with the " + username + " password ..." +
@@ -102,33 +111,58 @@ def file_available(filename):
         print("Check the path and the filename and try again")
         exit(1)
     else:
-        print_green(filename + " FOUND - OK")
+        print(filename + '\033[92m' + " --> FOUND - OK"  + '\033[00m')
 
 
 # Check Connectivity for HyperBalance
-def check_hb(lb_file, username, password, hostname):
+def check_hb(lb_file, username, password, primary, secondary):
     print("You need to have the root access.")
     username = "root"
-    hostname = input("Please, enter the IP address of your HyperBalance appliance : ")
-    control_ip(hostname)
-    print_red("Enter the " + username + " password for the connection ... ")
+    primary = input("Please, enter the IP address of your Primary HyperBalance appliance : ")
+    control_ip(primary)
+    print_green("Enter the " + username + " password for the connection ... ")
     password = getpass.getpass()
     # Connection test to the LB
-    print_green("Trying to connect to the host : " + hostname + " with the " + username + " password ..." +
+    print_green("Trying to connect to the host : " + primary + " with the " + username + " password ..." +
             " and then checking some parameters for you ...")
     send_command("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
-             + username + "@" + hostname + " lbcli --action nodestatus >" + lb_file + ".log", "OK. HyperBalance is reachable...")
-    return username, password, hostname
+             + username + "@" + primary + " lbcli --action nodestatus >" + lb_file + ".log", "OK. HyperBalance * Primary * is reachable...")
+    secondary = input('Please enter the IP address for the Secondary (or leave empty) :')
+    if not (secondary == ""):
+        control_ip(secondary)
+        send_command("sshpass -p" + password + " ssh -o 'StrictHostKeyChecking no' "
+                 + username + "@" + secondary + " lbcli --action nodestatus >>" + lb_file + ".log", "OK. HyperBalance * Secondary * is reachable...")
+    return username, password, primary, secondary
 
 
 # Revert the HyperBalance configuration applied to the appliance
-def revert_hb_config(lb_file, username, password, hostname):
-    # Remote actions on the hyperbalance appliance - Apply config
-    send_command("sshpass -p" + password + " ssh -T -q -o 'StrictHostKeyChecking no' "
-                 + username + "@" + hostname + " <./" + lb_file + "-revert.cmd >>" + lb_file + ".log", "HyperBalance configuration removed.")
-    # Checking logs for warnings or errors
-    check_hb_log(lb_file)
-    exit (0)
+def revert_hb_config(lb_file, username, password, primary, secondary):
+    answer = input("Could you confirm the REVERT action please (restart is mandatory) ? (yes / no) : ")
+    answer = answer.strip().lower()
+    if answer.startswith('yes'):
+        # Do revert for primary
+        file_available("lb_config_primary.xml")
+        send_command("sshpass -p" + password + " scp -o 'StrictHostKeyChecking no' lb_config_primary.xml "
+                     + username + "@" + primary + ":/etc/loadbalancer.org/lb_config.xml", "Primary config restored")
+        # Do same for secondary if exists
+        if not (secondary == ""):
+            file_available("lb_config_secondary.xml")
+            send_command("sshpass -p" + password + " scp -o 'StrictHostKeyChecking no' lb_config_secondary.xml "
+                + username + "@" + secondary + ":/etc/loadbalancer.org/lb_config.xml", "Secondary config restored")
+            print_green("--> Pair broken, restart needed ...")
+            send_command("sshpass -p" + password + " ssh -T -q -o 'StrictHostKeyChecking no' "
+                + username + "@" + primary + " lbcli --action power --function restart"
+                + " >>" + lb_file + ".log", "Running restart for the appliance : secondary.")
+        # Finish job for primary
+        send_command("sshpass -p" + password + " ssh -T -q -o 'StrictHostKeyChecking no' "
+            + username + "@" + primary + " lbcli --action power --function restart"
+            + " >>" + lb_file + ".log", "Running restart for the appliance : primary.")
+        # Checking logs for warnings or errors
+        check_hb_log(lb_file)
+        exit (0)
+    else:
+        print_red("** revert action canceled **")
+        exit(0)
 
 
 # Check the HyperBalance logs for fatal or failed messages
@@ -147,7 +181,6 @@ def control_ip(ip_addr):
     if bool(is_ok) is False:
         print_red("Error, the IP address provided : " + ip_addr + " is not in a valid format like : 192.168.1.2")
         exit(1)
-
     for ip_digit in ip_addr.split("."):
         digit = int(ip_digit)
         if digit < 0 or digit > 255:
@@ -155,27 +188,39 @@ def control_ip(ip_addr):
             exit(1)
 
 
+# Backup the HyperBalance configuration
+def backup_hyperbalance(username, password, primary, secondary):
+    send_command("sshpass -p" + password + " scp -o 'StrictHostKeyChecking no' " + username + "@" + primary + ":/etc/loadbalancer.org/lb_config.xml lb_config_primary.xml", "Backup Primary config")
+    if not (secondary == ""):
+        send_command("sshpass -p" + password + " scp -o 'StrictHostKeyChecking no' " + username + "@" + secondary + ":/etc/loadbalancer.org/lb_config.xml lb_config_secondary.xml", "Backup Secondary config")
+
+
+# For Debug perf.
+def whattimeisit():
+    t = time.localtime()
+    current_time = time.strftime("%H:%M:%S", t)
+    print("## for DEBUG, current time is : " + current_time)
+
+
 def main():
     # CONSTANT
     # to build the list of nodes for each TCP service - don't want to have a parameter file
     HEADER = "    server "
-    CMC_HTTPS_PARAMETERS = ":8443 check check-ssl verify none inter 5s rise 1 fall 2 slowstart 5000 maxconn 200"
-    S3_HTTP_PARAMETERS = ":80 check inter 5s rise 1 fall 2 slowstart 5000 maxconn 200"
-    S3_HTTPS_PARAMETERS = ":443 check check-ssl verify none inter 5s rise 1 fall 2 slowstart 5000 maxconn 200"
-    ADMIN_HTTPS_PARAMETERS = ":19443 check check-ssl verify none inter 5s rise 1 fall 2 slowstart 5000 maxconn 200"
-    IAM_HTTP_PARAMETERS = ":16080 check inter 5s rise 1 fall 2 slowstart 5000 maxconn 200"
-    IAM_HTTPS_PARAMETERS = ":16443 check inter 5s rise 1 fall 2 slowstart 5000 maxconn 200"
-    IAM_HEALTHCHECK = "    option httpchk\n    http-check send meth HEAD uri /.healthCheck\n    http-check expect status 200"
+    CMC_HTTPS_PARAMETERS = "check check-ssl verify none inter 5s rise 1 fall 2 slowstart 5000 maxconn 200"
+    S3_HTTP_PARAMETERS = "check inter 5s rise 1 fall 2 slowstart 5000 maxconn 200"
+    S3_HTTPS_PARAMETERS = "check check-ssl verify none inter 5s rise 1 fall 2 slowstart 5000 maxconn 200"
+    ADMIN_HTTPS_PARAMETERS = "check check-ssl verify none inter 5s rise 1 fall 2 slowstart 5000 maxconn 200"
+    IAM_HTTP_PARAMETERS = "check inter 5s rise 1 fall 2 slowstart 5000 maxconn 200"
+    IAM_HTTPS_PARAMETERS = "check check-ssl verify none inter 5s rise 1 fall 2 slowstart 5000 maxconn 200"
     # HyperBalance
     HEADER_HB_VIP = "--action add-vip --layer 7 --vip "
-    HEADER_HB_VIP_DELETE = "--action delete-vip --layer 7 --vip "
     HEADER_HB_RIP = " --action add-rip --vip "
-    CMC_HTTPS_HB_PARAMETERS = " --ports 8443 --mode tcp --persistence ip --check_type negotiate_https_head --check_request '/Cloudian/login.htm'"
-    S3_HTTP_HB_PARAMETERS = " --ports 80 --mode tcp --persistence none --check_type negotiate_http_head --check_request '/.healthCheck'"
-    S3_HTTPS_HB_PARAMETERS = " --ports 443 --mode tcp --persistence none --check_type negotiate_https_head --check_request '/.healthCheck'"
-    ADMIN_HTTPS_HB_PARAMETERS = " --ports 19443 --mode tcp --persistence none --check_type negotiate_https_head --check_request '/.healthCheck'"
-    IAM_HTTP_HB_PARAMETERS = " --ports 16080 --mode tcp --persistence none --check_type negotiate_http_head --check_request '/.healthCheck'"
-    IAM_HTTPS_HB_PARAMETERS = " --ports 16443 --mode tcp --persistence none --check_type negotiate_https_head --check_request '/.healthCheck'"
+    CMC_HTTPS_HB_PARAMETERS = "--mode tcp --persistence ip --check_type negotiate_https_options --check_request '/Cloudian/login.htm' --timeout on --timeout_client 180000 --timeout_server 181000"
+    S3_HTTP_HB_PARAMETERS = "--mode tcp --persistence none --check_type negotiate_http_head --check_request '/.healthCheck'"
+    S3_HTTPS_HB_PARAMETERS = "--mode tcp --persistence none --check_type negotiate_https_head --check_request '/.healthCheck'"
+    ADMIN_HTTPS_HB_PARAMETERS = "--mode tcp --persistence none --check_type negotiate_https_head --check_request '/.healthCheck'"
+    IAM_HTTP_HB_PARAMETERS = "--mode tcp --persistence none --check_type negotiate_http_head --check_request '/.healthCheck'"
+    IAM_HTTPS_HB_PARAMETERS = "--mode tcp --persistence none --check_type negotiate_https_head --check_request '/.healthCheck'"
     HB_TUNING_PARAMETERS = " --weight 100 --maxconns 200"
     # for options in the command line
     DEFAULT_BACKUP = "nobackupatall"
@@ -187,24 +232,28 @@ def main():
     servicemap_file = "/opt/cloudian/conf/cloudianservicemap.json"
     common_file = "common.csv"
     common_extra_path = "/manifests/extdata/"
-    install_path = "/root/CloudianPackages"
+    install_path = "/root/CloudianPackages"     # old fashion
     template_file = "haproxy_config_template.cfg"
     lb_file = "haproxy.cfg"
-    adminapi_password = "public"
-    adminapi_user = "sysadmin"
     hyperstore_version = "0"    # 0 means no version
-    # Force empty value
+    # Force empty value or default
     cmc_endpoint = ""
     cmc_https_list = []
+    cmc_port = 8443
     s3_endpoint = ""
     s3_http_list = []
     s3_https_list = []
+    s3_http_port = 80
+    s3_https_port = 443
     admin_endpoint = ""
     admin_https_list = []
-    admin_auth = ""
+    admin_port = 19443
     iam_endpoint = ""
     iam_http_list = []
     iam_https_list = []
+    iam_http_port = 16080
+    iam_https_port = 16443
+    iam_only_https = False
     config_path = ""
     #    backup_parameter = ""
     use_backup_option = False
@@ -250,16 +299,17 @@ def main():
     args = parser.parse_args()
 
     hyperbalance = args.hyperbalance
-    # In case of a HAProxy config, we need to do more steps
+    # In case of a HyperBalance config or haproxy, we need to do more steps
     if hyperbalance:
-        print("You requested a configuration for a HyperBalance appliance \n")
+        print("You requested a configuration for : " + '\033[92m' + "HyperBalance appliance\n" + '\033[00m')
         lb_file = "hb-config"
     elif args.hbrevert:
         lb_file = "hb-config"
-        file_available(lb_file + "-revert.cmd")
-        username, password, hostname = check_hb(lb_file, "root", password="", hostname="")
-        revert_hb_config(lb_file, username, password, hostname)
+        print_red("YOU ARE REQUESTING TO REVERT THE CONFIGURATION")
+        username, password, primary, secondary = check_hb(lb_file, "root", password="", primary="", secondary="")
+        revert_hb_config(lb_file, username, password, primary, secondary)
     else:
+        print("You requested a configuration for : " + '\033[92m' + "HAProxy\n" + '\033[00m')
         # Define if we are using the "backup" parameter
         if args.backups3 != DEFAULT_BACKUP:
             use_backup_option = True
@@ -284,7 +334,7 @@ def main():
             for line in filein:
                 if "cloudianInstall.sh" in line:
                     install_path = line.strip().split(':')[4].split(',')[0].split('\"')[1].split('cloudianInstall.sh')[0]
-                    print("We are considering the following path as the current path for the cloudian installation : " + install_path + "\n")
+                    print("We are considering the following path as the current path for the cloudian installation : " + '\033[92m' + install_path + '\033[00m')
                     survey_file = install_path + survey_file
                     install_config_file = install_path + install_config_file
                 if "configdir" in line:
@@ -292,7 +342,7 @@ def main():
                     common_file = common_path + common_extra_path + common_file
                     # common file will be checked later ... file_available(common_file)
     else:
-        print_red("We are considering this host is NOT the Cloudian puppet master \n")
+        print_red("We are considering this host is NOT the Cloudian puppet primary \n")
         # if there is no servicemap file, then the script will keep the defaults or options
         # looking for the config files in the folder specified if there is...
         if args.folder != "":
@@ -311,7 +361,6 @@ def main():
     file_available(install_config_file)
     file_available(common_file)
 
-    # Retrieve the AdminAPI password (keep it for backward compatibility on release < HS7.4)
     # Check if we have to use the Proxy_Protocol for S3
     # Retrieve the HyperStore version too
     # source : file "common.csv"
@@ -320,44 +369,44 @@ def main():
             if "release_version," in line:
                 hyperstore_version = line.strip().split(',')[1]
                 print_green("\nHyperStore release detected : " + hyperstore_version)
-            if "admin_auth_pass," in line:
-                adminapi_password = line.strip().split(',')[2].split('\"')[0]
-            if "admin_auth_user," in line:
-                adminapi_user = line.strip().split(',')[1]
+            if "cmc_https_port," in line:
+                cmc_port = line.strip().split(',')[1]
+            if "cmc_admin_secure_port," in line:
+                admin_port = line.strip().split(',')[1]
+            if "cloudian_s3_port," in line:
+                s3_http_port = line.strip().split(',')[1]
+            if "cloudian_s3_ssl_port," in line:
+                s3_https_port = line.strip().split(',')[1]
+            if "iam_port," in line:
+                iam_http_port = line.strip().split(',')[1]
+            if "iam_secure_port," in line:
+                iam_https_port = line.strip().split(',')[1]
+            if "iam_secure,true" in line:
+                print_green("\nIAM secure DETECTED - the config will use only IAM HTTPS EndPoint\n")
+                iam_only_https = True
             if "s3_proxy_protocol_enabled,true" in line:
-                print_green("\nProxy Protocol ENABLED - the HAProxy config will reflect that\n")
+                print_green("\nProxy Protocol ENABLED - the HAProxy config will reflect that with ports 81 and 4431\n")
                 S3_HTTP_PARAMETERS = S3_HTTP_PARAMETERS.replace(":80 check", ":81 check send-proxy")
                 S3_HTTPS_PARAMETERS = S3_HTTPS_PARAMETERS.replace(":443 check", ":4431 check send-proxy")
 
-    # Encode the login : password to base64 in any case (default parameters)
-    # as reminder : # echo -n "user:passwd" | base64
-    # needed for HS < 7.4
-    admin_auth = adminapi_user + ":" + adminapi_password
-    admin_auth = base64.b64encode(admin_auth.encode("utf-8"))       # compatibility with Python 3.x str/bytes
-    admin_auth = "'Basic " + admin_auth.decode() + "'"              # compatibility with Python 3.x str/bytes
-
-    # Add IAM healthCheck if the HS version is >= 7.4 (force usage to 7.x only)
-    # will remove this after the transition to 7.4 and upper
+    # Check the HyperStore version for compatibility reason and layer 7 healthcheck
+    # HS < 7.4 is no more supported by this tool
     if int(hyperstore_version.split('.')[0]) == 7:
         if int(hyperstore_version.split('.')[1]) < 4:
-            if hyperbalance:
-                print_red("Error, we support only HyperStore > 7.4 for HyperBalance")
-                exit(1)
-            else:
-                print_red("Notice : using legacy layer 4 HealthCheck for IAM Service based on the HS version detected.")
-        elif not hyperbalance:
-            iam_http_list.append(IAM_HEALTHCHECK)
-            iam_https_list.append(IAM_HEALTHCHECK)
-            IAM_HTTPS_PARAMETERS = IAM_HTTPS_PARAMETERS.replace(":16443 check", ":16443 check check-ssl verify none")
+            print_red("Error, we recommend to use HyperStore : 7.4.x at the minimum level."
+                      "\nThis tool supports only HyperStore 7.4.x or upper")
+            exit(1)
     else:
         print_red("Error, we support only HyperStore version 7.x at the moment")
         print("Contact the author of the tool")
         exit(1)
 
-    # Retrieve Endpoint information (s3 domain, admin domain, cmc domain, iam domain)
+    # Retrieve Endpoint information (default region, s3 domain, admin domain, cmc domain, iam domain)
     # source : file "CloudianInstallConfiguration.txt"
     with open(install_config_file, "r") as filein:
         for line in filein:
+            if "cloudian_cluster_regionname_region1=" in line:
+                default_region = line.strip().split('=')[1]
             if "cloudian_s3_domain_region1=" in line:
                 s3_endpoint = line.strip().split('=')[1]
             elif "cloudian_admin_host=" in line:
@@ -368,13 +417,11 @@ def main():
                 iam_endpoint = line.strip().split('=')[1]
     filein.close()
 
-    # Test if IAM domain is present (not the case for 7.0 or 7.1 config files)
+    # Test if IAM domain is present or if there is an issue with admin EndPoint (not the case for 7.0 or 7.1 config files/back compatibility)
+    # will be removed later
     if not iam_endpoint:
-        print_green("\n *** IAM Endpoint not found. Looks like it is an older version : HS 7.0.x or 7.1.x *** ")
-        iam_endpoint = "iam.not-yet-configured"
-        print("We prepare your HAProxy config file to use IAM with a temporary iam domain instead like : " + iam_endpoint)
-        print("In the future, replace the " + iam_endpoint + " with your IAM EndPoint value.")
-        print("Please, comment the IAM lines (with a #) in the config file if you don't want to see the warning lines in the STATs page")
+        print_red("\n Error, IAM Endpoint not found. Looks like it is an old version. ")
+        exit(1)
     elif iam_endpoint == admin_endpoint:
         print_red("\n *** Warning, your IAM Endpoint has the same value compared to the AdminAPI Endpoint ***")
         print("IAM Endpoint = ") + iam_endpoint
@@ -394,19 +441,22 @@ def main():
             else:
                 backup_parameter = ""
             if not hyperbalance:
-                cmc_https_list.append(HEADER + listing[1] + " " + listing[2] + CMC_HTTPS_PARAMETERS)
-                s3_http_list.append(HEADER + listing[1] + " " + listing[2] + S3_HTTP_PARAMETERS + " " + backup_parameter)
-                s3_https_list.append(HEADER + listing[1] + " " + listing[2] + S3_HTTPS_PARAMETERS + " " + backup_parameter)
-                admin_https_list.append(HEADER + listing[1] + " " + listing[2] + ADMIN_HTTPS_PARAMETERS)
-                iam_http_list.append(HEADER + listing[1] + " " + listing[2] + IAM_HTTP_PARAMETERS + " " + backup_parameter)
-                iam_https_list.append(HEADER + listing[1] + " " + listing[2] + IAM_HTTPS_PARAMETERS + " " + backup_parameter)
+                cmc_https_list.append(HEADER + listing[1] + " " + listing[2] + ":" + cmc_port + " " + CMC_HTTPS_PARAMETERS)
+                s3_http_list.append(HEADER + listing[1] + " " + listing[2] + ":" + s3_http_port + " " + S3_HTTP_PARAMETERS + " " + backup_parameter)
+                s3_https_list.append(HEADER + listing[1] + " " + listing[2] + ":" + s3_https_port + " " + S3_HTTPS_PARAMETERS + " " + backup_parameter)
+                if (listing[0] == default_region ):
+                    admin_https_list.append(HEADER + listing[1] + " " + listing[2] + ":" + admin_port + " " +ADMIN_HTTPS_PARAMETERS)
+                    iam_http_list.append(HEADER + listing[1] + " " + listing[2] + ":" + iam_http_port + " " + IAM_HTTP_PARAMETERS + " " + backup_parameter)
+                    iam_https_list.append(HEADER + listing[1] + " " + listing[2] + ":" + iam_https_port + " " + IAM_HTTPS_PARAMETERS + " " + backup_parameter)
             else:
-                cmc_https_list.append(HEADER_HB_RIP + cmc_endpoint + " --rip " + listing[1] + " --ip " + listing[2] + " --port 8443 " + HB_TUNING_PARAMETERS)
-                s3_http_list.append(HEADER_HB_RIP + s3_endpoint + "_HTTP" + " --rip " + listing[1] + " --ip " + listing[2] + " --port 80 " + HB_TUNING_PARAMETERS)
-                s3_https_list.append(HEADER_HB_RIP + s3_endpoint + "_HTTPS" + " --rip " + listing[1] + " --ip " + listing[2] + " --port 443 " + HB_TUNING_PARAMETERS)
-                admin_https_list.append(HEADER_HB_RIP + admin_endpoint + " --rip " + listing[1] + " --ip " + listing[2] + " --port 19443 " + HB_TUNING_PARAMETERS)
-                iam_http_list.append(HEADER_HB_RIP + iam_endpoint + "_HTTP" + " --rip " + listing[1] + " --ip " + listing[2] + " --port 16080 " + HB_TUNING_PARAMETERS)
-                iam_https_list.append(HEADER_HB_RIP + iam_endpoint + "_HTTPS" + " --rip " + listing[1] + " --ip " + listing[2] + " --port 16443 " + HB_TUNING_PARAMETERS)
+                cmc_https_list.append(HEADER_HB_RIP + cmc_endpoint + " --rip " + listing[1] + " --ip " + listing[2] + " --port " + cmc_port + " " + HB_TUNING_PARAMETERS)
+                s3_http_list.append(HEADER_HB_RIP + s3_endpoint + "_HTTP" + " --rip " + listing[1] + " --ip " + listing[2] + " --port " + s3_http_port + " " + HB_TUNING_PARAMETERS)
+                s3_https_list.append(HEADER_HB_RIP + s3_endpoint + "_HTTPS" + " --rip " + listing[1] + " --ip " + listing[2] + " --port " + s3_https_port + " " + HB_TUNING_PARAMETERS)
+                if (listing[0] == default_region ):
+                    admin_https_list.append(HEADER_HB_RIP + admin_endpoint + " --rip " + listing[1] + " --ip " + listing[2] + " --port " + admin_port + " " + HB_TUNING_PARAMETERS)
+                    if not iam_only_https:
+                        iam_http_list.append(HEADER_HB_RIP + iam_endpoint + "_HTTP" + " --rip " + listing[1] + " --ip " + listing[2] + " --port " + iam_http_port + " " + HB_TUNING_PARAMETERS)
+                    iam_https_list.append(HEADER_HB_RIP + iam_endpoint + "_HTTPS" + " --rip " + listing[1] + " --ip " + listing[2] + " --port " + iam_https_port + " " + HB_TUNING_PARAMETERS)
             line = filein.readline()
     if (not dc_exist) and use_backup_option:
         print("Error, the expected DC : " + args.backups3 + " is not valid")
@@ -421,7 +471,7 @@ def main():
             # Read template file
             src = Template(filein.read())
             d = {'mailserver_line': '\n'.join(mailserver), 'cmc_endpoint': cmc_endpoint, 's3_endpoint': s3_endpoint,
-                 'admin_endpoint': admin_endpoint, 'iam_endpoint': iam_endpoint, 'admin_auth': admin_auth,
+                 'admin_endpoint': admin_endpoint, 'iam_endpoint': iam_endpoint,
                  'cmc_https_list': '\n'.join(cmc_https_list),
                  's3_http_list': '\n'.join(s3_http_list), 's3_https_list': '\n'.join(s3_https_list),
                  'admin_https_list': '\n'.join(admin_https_list), 'mail_list': ''.join(mail_list),
@@ -438,42 +488,52 @@ def main():
     else:
         # Create HyperBalance config file
         # destination : lb_file
-        username, password, hostname = check_hb(lb_file, "root", password="", hostname="")
+        username, password, primary, secondary = check_hb(lb_file, "root", password="", primary="", secondary="")
         vip = input("\nPlease, enter the IP address for the VIP (floating IP) : ")
         control_ip(vip)
-        result = [HEADER_HB_VIP + cmc_endpoint + "  --ip " + vip + CMC_HTTPS_HB_PARAMETERS]
+        print_green("Building the configuration")
+        result = [HEADER_HB_VIP + cmc_endpoint + " --ip " + vip + " --ports " + cmc_port + " " + CMC_HTTPS_HB_PARAMETERS]
         result.extend(cmc_https_list)
-        result.append([HEADER_HB_VIP + s3_endpoint + "_HTTP" + " --ip " + vip + S3_HTTP_HB_PARAMETERS])
+        result.append([HEADER_HB_VIP + s3_endpoint + "_HTTP" + " --ip " + vip + " --ports " + s3_http_port + " " + S3_HTTP_HB_PARAMETERS])
         result.extend(s3_http_list)
-        result.append([HEADER_HB_VIP + s3_endpoint + "_HTTPS" + " --ip " + vip + S3_HTTPS_HB_PARAMETERS])
+        result.append([HEADER_HB_VIP + s3_endpoint + "_HTTPS" + " --ip " + vip + " --ports " + s3_https_port + " " + S3_HTTPS_HB_PARAMETERS])
         result.extend(s3_https_list)
-        result.append([HEADER_HB_VIP + admin_endpoint + " --ip " + vip + ADMIN_HTTPS_HB_PARAMETERS])
+        result.append([HEADER_HB_VIP + admin_endpoint + " --ip " + vip + " --ports " + admin_port + " " + ADMIN_HTTPS_HB_PARAMETERS])
         result.extend(admin_https_list)
-        result.append([HEADER_HB_VIP + iam_endpoint + "_HTTP" + " --ip " + vip + IAM_HTTP_HB_PARAMETERS])
-        result.extend(iam_http_list)
-        result.append([HEADER_HB_VIP +  iam_endpoint + "_HTTPS" + " --ip " + vip + IAM_HTTPS_HB_PARAMETERS])
+        if not(iam_only_https):
+            result.append([HEADER_HB_VIP + iam_endpoint + "_HTTP" + " --ip " + vip + " --ports " + iam_http_port + " " + IAM_HTTP_HB_PARAMETERS])
+            result.extend(iam_http_list)
+        result.append([HEADER_HB_VIP +  iam_endpoint + "_HTTPS" + " --ip " + vip + " --ports " + iam_https_port + " " + IAM_HTTPS_HB_PARAMETERS])
         result.extend(iam_https_list)
         result.append("--action restart-haproxy")
         with open(lb_file + "-add.cmd", "w") as fileout:
             for line in result:
                 fileout.write("\nlbcli " + "".join(line))
             fileout.close()
-        # Create revert commands to go back on the LB config if needed
-        with open(lb_file + "-revert.cmd", "w") as fileout:
-            fileout.write("\nlbcli " + HEADER_HB_VIP_DELETE + cmc_endpoint)
-            fileout.write("\nlbcli " + HEADER_HB_VIP_DELETE + s3_endpoint + "_HTTP")
-            fileout.write("\nlbcli " + HEADER_HB_VIP_DELETE + s3_endpoint + "_HTTPS")
-            fileout.write("\nlbcli " + HEADER_HB_VIP_DELETE + admin_endpoint)
-            fileout.write("\nlbcli " + HEADER_HB_VIP_DELETE + iam_endpoint + "_HTTP")
-            fileout.write("\nlbcli " + HEADER_HB_VIP_DELETE + iam_endpoint + "_HTTPS")
-            fileout.write("\nlbcli " + " --action delete-floating-ip --ip " + vip)
-            fileout.write("\nlbcli --action restart-haproxy")
-            fileout.close()
-        # Remote actions on the hyperbalance appliance - Apply config
+        # Backup
+        backup_hyperbalance(username,password,primary,secondary)
+        # Remote actions on the hyperbalance appliance - Apply config on the primary
         send_command("sshpass -p" + password + " ssh -T -q -o 'StrictHostKeyChecking no' "
-                + username + "@" + hostname + " <./" + lb_file + "-add.cmd >>" + lb_file + ".log", "HyperBalance configuration is applied.")
+                + username + "@" + primary + " <./" + lb_file + "-add.cmd >>" + lb_file + ".log", "HyperBalance configuration is applied.")
         # Checking logs for warnings or errors
         check_hb_log(lb_file)
+
+        if not (secondary == ""):
+            print_green("HA configuration in progress")
+            send_command("sshpass -p" + password + " ssh -T -q -o 'StrictHostKeyChecking no' "
+                         + username + "@" + primary + " lbcli --action ha_create --local_ip " + primary
+                         + " --peer_ip " + secondary + " --peer_password " + password
+                         + " >>" + lb_file + ".log", "HA pair created.")
+            send_command("sshpass -p" + password + " ssh -T -q -o 'StrictHostKeyChecking no' "
+                         + username + "@" + primary + " lbcli --action restart-heartbeat"
+                         + " >>" + lb_file + ".log", "Heartbeat restarted on primary.")
+            send_command("sshpass -p" + password + " ssh -T -q -o 'StrictHostKeyChecking no' "
+                         + username + "@" + secondary + " lbcli --action restart-heartbeat"
+                         + " >>" + lb_file + ".log", "Heartbeat restarted on secondary.")
+            send_command("sshpass -p" + password + " ssh -T -q -o 'StrictHostKeyChecking no' "
+                         + username + "@" + primary + " lbcli --action restart-haproxy"
+                         + " >>" + lb_file + ".log", "HA is fully configured.")
+            check_hb_log(lb_file)
 
 
 if __name__ == "__main__":
